@@ -22,9 +22,9 @@
 class DSVideoCodec
 {
 public:
-    DSVideoCodec::DSVideoCodec(const char *filename, const GUID guid, BITMAPINFOHEADER *bih, unsigned int outfmt) :
-      m_guid(guid), m_bih(bih), m_hDll(NULL), m_outfmt(outfmt), m_discontinuity(1), m_pFilter(NULL),
-      m_pInputPin(NULL), m_pOutputPin(NULL), m_pOurInput(NULL), m_pOurOutput(NULL),
+    DSVideoCodec::DSVideoCodec(const char *filename, const GUID guid, BITMAPINFOHEADER *bih, unsigned int outfmt, int mpegts) :
+      m_guid(guid), m_bih(bih), m_hDll(NULL), m_outfmt(outfmt), m_discontinuity(1), m_mpegts(mpegts),
+      m_pFilter(NULL), m_pInputPin(NULL), m_pOutputPin(NULL), m_pOurInput(NULL), m_pOurOutput(NULL),
       m_pImp(NULL), m_pAll(NULL), m_pSFilter(NULL), m_pRFilter(NULL), m_pGraph(NULL), m_pMC(NULL)
     {
         strncpy(m_fname, filename, MAX_PATH);
@@ -238,12 +238,17 @@ public:
         int size = sizeof(MPEG2VIDEOINFO);
         if (extra > 0)
         {
-            BYTE *extradata = (BYTE *) m_bih + sizeof(BITMAPINFOHEADER) + 4;
-            m_mp2vi.dwFlags = (*extradata & 0x3) + 1;
-            /* printf("NALU length field size %d\n", m_mp2vi.dwFlags); */
-            m_mp2vi.cbSequenceHeader = avc_quant((BYTE *)(m_bih) + sizeof(BITMAPINFOHEADER), (BYTE *)(&m_mp2vi.dwSequenceHeader[0]), extra);
-            // The '4' is from the allocated space of dwSequenceHeader
-            size += m_mp2vi.cbSequenceHeader - 4;
+			if(!m_mpegts) {
+				BYTE *extradata = (BYTE *) m_bih + sizeof(BITMAPINFOHEADER) + 4;
+				m_mp2vi.dwFlags = (*extradata & 0x3) + 1;
+				/* printf("NALU length field size %d\n", m_mp2vi.dwFlags); */
+				m_mp2vi.cbSequenceHeader = avc_quant((BYTE *)(m_bih) + sizeof(BITMAPINFOHEADER), (BYTE *)(&m_mp2vi.dwSequenceHeader[0]), extra);
+				// The '4' is from the allocated space of dwSequenceHeader
+				size += m_mp2vi.cbSequenceHeader - 4;
+			} else {
+				m_mp2vi.cbSequenceHeader = extra;
+				memcpy(&m_mp2vi.dwSequenceHeader[0], (BYTE *)(&m_mp2vi.hdr.bmiHeader) + sizeof(BITMAPINFOHEADER), extra);
+			}
         }
 
         m_pOurType.formattype = FORMAT_MPEG2Video;
@@ -509,6 +514,7 @@ private:
     char m_fname[MAX_PATH + 1];
     unsigned int m_outfmt;
     int m_discontinuity;
+	int m_mpegts;
     HRESULT m_res;
     BITMAPINFOHEADER *m_bih;
     IBaseFilter *m_pFilter;
@@ -534,9 +540,9 @@ private:
 };
 
 
-extern "C" DSVideoCodec * WINAPI DSOpenVideoCodec(const char *dll, const GUID guid, BITMAPINFOHEADER* bih, unsigned int outfmt, dsnerror_t *err)
+extern "C" DSVideoCodec * WINAPI DSOpenVideoCodec(const char *dll, const GUID guid, BITMAPINFOHEADER* bih, unsigned int outfmt, int mpegts, dsnerror_t *err)
 {
-    DSVideoCodec *vcodec = new DSVideoCodec(dll, guid, bih, outfmt);
+    DSVideoCodec *vcodec = new DSVideoCodec(dll, guid, bih, outfmt, mpegts);
     dsnerror_t res = DSN_OK;
 
     if (!vcodec->LoadLibrary())

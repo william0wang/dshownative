@@ -1,0 +1,26 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dshownative", "dshownative.vcproj", "{DF438A3C-C72B-4C7E-BCCF-C4E6548E074B}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dshowtool", "dshowtool.vcproj", "{F5292D69-276B-4AB2-A9EF-5EA8C9338463}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DF438A3C-C72B-4C7E-BCCF-C4E6548E074B}.Debug|Win32.ActiveCfg = Debug|Win32
+		{DF438A3C-C72B-4C7E-BCCF-C4E6548E074B}.Debug|Win32.Build.0 = Debug|Win32
+		{DF438A3C-C72B-4C7E-BCCF-C4E6548E074B}.Release|Win32.ActiveCfg = Release|Win32
+		{DF438A3C-C72B-4C7E-BCCF-C4E6548E074B}.Release|Win32.Build.0 = Release|Win32
+		{F5292D69-276B-4AB2-A9EF-5EA8C9338463}.Debug|Win32.ActiveCfg = Debug|Win32
+		{F5292D69-276B-4AB2-A9EF-5EA8C9338463}.Debug|Win32.Build.0 = Debug|Win32
+		{F5292D69-276B-4AB2-A9EF-5EA8C9338463}.Release|Win32.ActiveCfg = Release|Win32
+		{F5292D69-276B-4AB2-A9EF-5EA8C9338463}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
