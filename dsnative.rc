@@ -21,9 +21,9 @@ BEGIN
 		BEGIN
 			VALUE "FileDescription", "Direct Show Native Wrapper"
 			VALUE "FileVersion", "0, 0, 0, 1"
-			VALUE "InternalName", "dsnative.dll"
+			VALUE "InternalName", "dshownative.dll"
 			VALUE "LegalCopyright", "Copyright (C) 2010 Gianluigi Tiesi"
-			VALUE "OriginalFilename", "dsnative.dll"
+			VALUE "OriginalFilename", "dshownative.dll"
 			VALUE "ProductName", "Direct Show Native Wrapper"
 			VALUE "ProductVersion", "0, 0, 0, 1"
 		END
