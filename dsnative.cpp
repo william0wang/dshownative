@@ -22,42 +22,108 @@
 class DSVideoCodec
 {
 public:
-    DSVideoCodec::DSVideoCodec(const char *filename, const GUID guid, BITMAPINFOHEADER *bih, unsigned int outfmt, int mpegts) :
-      m_guid(guid), m_bih(bih), m_hDll(NULL), m_outfmt(outfmt), m_discontinuity(1), m_mpegts(mpegts),
-      m_pFilter(NULL), m_pInputPin(NULL), m_pOutputPin(NULL), m_pOurInput(NULL), m_pOurOutput(NULL),
-      m_pImp(NULL), m_pAll(NULL), m_pSFilter(NULL), m_pRFilter(NULL), m_pGraph(NULL), m_pMC(NULL)
+    DSVideoCodec::DSVideoCodec(const char *cfname, const GUID guid, BITMAPINFOHEADER *bih, unsigned int outfmt, const char *sfname, int mpegts) :
+      m_guid(guid), m_bih(bih), m_hDll(NULL), m_outfmt(outfmt), m_vinfo(NULL), m_discontinuity(1), m_pFilter(NULL),
+      m_pInputPin(NULL), m_pOutputPin(NULL), m_pOurInput(NULL), m_pOurOutput(NULL), m_mpegts(mpegts),
+      m_pImp(NULL), m_pAll(NULL), m_pSFilter(NULL), m_pRFilter(NULL), m_pGraph(NULL), m_pMC(NULL), m_cfname(NULL), m_sfname(NULL)
     {
-        strncpy(m_fname, filename, MAX_PATH);
+        int len;
+
+        ASSERT(cfname);
+        ASSERT(bih);
+
+        len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, cfname, -1, NULL, 0);
+        if (len > 0)
+        {
+            m_cfname = new wchar_t[len];
+            MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, cfname, -1, m_cfname, len);
+        }
+
+        if (sfname)
+        {
+            len = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, sfname, -1, NULL, 0);
+            if (len > 0)
+            {
+                m_sfname = new wchar_t[len];
+                MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, sfname, -1, m_sfname, len);
+            }
+        }
     }
 
     DSVideoCodec::~DSVideoCodec()
     {
         ReleaseGraph();
-        if (m_hDll)
-            FreeLibrary(m_hDll);
+        if (m_cfname) delete m_cfname;
+        if (m_sfname) delete m_sfname;
+        if (m_vinfo) delete m_vinfo;
+        if (m_hDll) FreeLibrary(m_hDll);
     }
 
     void ReleaseGraph(void)
     {
-        if (m_pMC) m_pMC->Stop();
-        if (m_pGraph) RemoveFromRot(m_dwRegister);
+        if (m_pMC) m_res = m_pMC->Stop();
+        else if (m_pFilter)
+            m_res = m_pFilter->Stop();
 
-        /* binary codec */
-        if (m_pAll) m_pAll->Release();
+        if (m_pGraph)
+        {
+            if (m_pFilter)
+            {
+                ASSERT(m_pSFilter);
+                ASSERT(m_pRFilter);
+                m_res = m_pGraph->RemoveFilter(m_pFilter);
+                m_res = m_pGraph->RemoveFilter(m_pSFilter);
+                m_res = m_pGraph->RemoveFilter(m_pRFilter);
+            }
+            RemoveFromRot(m_dwRegister);
+        }
+        else
+        {
+            if (m_pInputPin) m_res = m_pInputPin->Disconnect();
+            if (m_pOutputPin) m_res = m_pOutputPin->Disconnect();
+            if (m_pFilter) m_res = m_pFilter->JoinFilterGraph(NULL, NULL);
+        }
+
         if (m_pImp) m_pImp->Release();
-        if (m_pInputPin) m_pInputPin->Disconnect();
-        if (m_pOutputPin) m_pOutputPin->Disconnect();
-        if (m_pInputPin) m_pInputPin->Release();
-        if (m_pOutputPin) m_pOutputPin->Release();
-        if (m_pFilter) m_pFilter->Release();
-
-        if (m_pMC) m_pMC->Release();
-        if (m_pGraph) m_pGraph->Release();
+        if (m_pFilter) m_res = m_pFilter->Release();
+        if (m_pSFilter) m_res = m_pSFilter->Release();
+        if (m_pRFilter) m_res = m_pRFilter->Release();
     }
 
     BOOL LoadLibrary(void)
     {
-        return ((m_hDll = ::LoadLibrary(m_fname)) != NULL);
+        HKEY hKey = NULL;
+
+        while ((m_hDll = ::LoadLibraryW(m_cfname)) == NULL)
+        {
+            /* Try picking path from the registry, if the codecs is registered in the system */
+            LONG size;
+            wchar_t subkey[61] = L"\\CLSID\\";
+            size = (sizeof(subkey) / 2) - 7;
+
+            if (StringFromGUID2(m_guid, subkey + 7, size) != 39)
+                break;
+
+            size -= 39;
+            wcsncat(subkey, L"\\InprocServer32", size);
+
+            if (RegOpenKeyW(HKEY_CLASSES_ROOT, subkey, &hKey) != ERROR_SUCCESS)
+                break;
+
+            if (RegQueryValueW(hKey, NULL, NULL, &size) != ERROR_SUCCESS)
+                break;
+
+            delete m_cfname;
+
+            m_cfname = new wchar_t[size];
+            if (RegQueryValueW(hKey, NULL, m_cfname, &size) == ERROR_SUCCESS)
+                m_hDll = ::LoadLibraryW(m_cfname);
+
+            break;
+        }
+
+        if (hKey) RegCloseKey(hKey);
+        return (m_hDll != NULL);
     }
 
     BOOL CreateFilter(void)
@@ -146,22 +212,12 @@ public:
             m_pDestType.pbFormat = (BYTE *) &m_vi2;
             m_res = m_pOutputPin->QueryAccept(&m_pDestType);
         }
-
         return (m_res == S_OK) ? DSN_OK : DSN_OUTPUT_NOTACCEPTED;
     }
 
-    void SetInputType(void)
+    BOOL isAVC(DWORD biCompression)
     {
-        m_pOurType.majortype = MEDIATYPE_Video;
-        m_pOurType.subtype = MEDIATYPE_Video;
-        m_pOurType.subtype.Data1 = m_bih->biCompression;
-        m_pOurType.formattype = FORMAT_VideoInfo;
-        m_pOurType.bFixedSizeSamples = FALSE;
-        m_pOurType.bTemporalCompression = TRUE;
-        m_pOurType.lSampleSize = 1; // FIXME: correct ?
-        m_pOurType.pUnk = NULL;
-
-        switch (m_bih->biCompression)
+        switch (biCompression)
         {
             case mmioFOURCC('H', '2', '6', '4'):
             case mmioFOURCC('h', '2', '6', '4'):
@@ -172,88 +228,113 @@ public:
             case mmioFOURCC('d', 'a', 'v', 'c'):
             case mmioFOURCC('D', 'A', 'V', 'C'):
             case mmioFOURCC('V', 'S', 'S', 'H'):
-                SetInputMPEG2();
-                break;
-            default:
-                SetInputVideoInfo();
+                return TRUE;
         }
+        return FALSE;
     }
 
-    void SetInputVideoInfo(void)
+    BOOL SetInputType(void)
     {
-        memset(&m_vi, 0, sizeof(m_vi));
-        memcpy(&m_vi.bmiHeader, m_bih, m_bih->biSize);
-        m_vi.rcSource.left = m_vi.rcSource.top = 0;
-        m_vi.rcSource.right = m_bih->biWidth;
-        m_vi.rcSource.bottom = m_bih->biHeight;
-        m_vi.rcTarget = m_vi.rcSource;
+        ULONG cbFormat;
 
-        m_pOurType.formattype = FORMAT_VideoInfo;
-        m_pOurType.pbFormat = (BYTE *) &m_vi;
-        m_pOurType.cbFormat = sizeof(VIDEOINFOHEADER);
-    }
+        m_pOurType.majortype = MEDIATYPE_Video;
+        m_pOurType.subtype = MEDIATYPE_Video;
+        m_pOurType.bFixedSizeSamples = FALSE;
+        m_pOurType.bTemporalCompression = TRUE;
+        m_pOurType.lSampleSize = 1;
+        m_pOurType.pUnk = NULL;
 
-    DWORD avc_quant(BYTE *src, BYTE *dst, int len)
-    {
-        // Stolen from libavcodec h264.c
-        BYTE *p = src, *d = dst;
-        int cnt;
+        /* ffdshow (and others ?) needs AVC1 as fourcc for avc video */
+        if (isAVC(m_bih->biCompression))
+            m_pOurType.subtype.Data1 = mmioFOURCC('A', 'V', 'C', '1');
+        else
+            m_pOurType.subtype.Data1 = m_bih->biCompression;
 
-        cnt = *(p + 5) & 0x1f; // Number of sps
+        // probe FORMAT_MPEG2Video
+        // this is done before FORMAT_VideoInfo because e.g. coreavc will accept anyway the format
+        // but it will decode black frames
 
-        if (src[0] != 0x01 || cnt > 1)
-        {
-            memcpy(dst, src, len);
-            return len;
-        }
-        p += 6;
-
-        // cnt > 1 not supported?
-        cnt = (*p << 8) | *(p + 1) + 2;
-        memcpy(d, p, cnt);
-        d += cnt;
-        p += cnt;
-
-        // assume pps cnt == 1 too
-        p++;
-        cnt = (*p << 8) | *(p + 1) + 2;
-        memcpy(d, p, cnt);
-        return (int) (d + cnt - dst);
-    }
-
-    void SetInputMPEG2(void)
-    {
-        memset(&m_mp2vi, 0, sizeof(m_mp2vi));
-        m_mp2vi.hdr.rcSource.left = m_mp2vi.hdr.rcSource.top = 0;
-        m_mp2vi.hdr.rcSource.right = m_bih->biWidth;
-        m_mp2vi.hdr.rcSource.bottom = m_bih->biHeight;
-        m_mp2vi.hdr.rcTarget = m_mp2vi.hdr.rcSource;
-        m_mp2vi.hdr.dwPictAspectRatioX = m_bih->biWidth;
-        m_mp2vi.hdr.dwPictAspectRatioY = m_bih->biHeight;
-        memcpy(&m_mp2vi.hdr.bmiHeader, m_bih, sizeof(BITMAPINFOHEADER));
-        m_mp2vi.hdr.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-
-        /* extradata */
         int extra = m_bih->biSize - sizeof(BITMAPINFOHEADER);
-        int size = sizeof(MPEG2VIDEOINFO);
+        cbFormat = FIELD_OFFSET(MPEG2VIDEOINFO, dwSequenceHeader) + extra - 7;
+
+        MPEG2VIDEOINFO *try_mp2vi = (MPEG2VIDEOINFO *) new BYTE[cbFormat];
+        m_vinfo = (BYTE *) try_mp2vi;
+
+        memset(try_mp2vi, 0, cbFormat);
+        try_mp2vi->hdr.rcSource.left = try_mp2vi->hdr.rcSource.top = 0;
+        try_mp2vi->hdr.rcSource.right = m_bih->biWidth;
+        try_mp2vi->hdr.rcSource.bottom = m_bih->biHeight;
+        try_mp2vi->hdr.rcTarget = try_mp2vi->hdr.rcSource;
+        try_mp2vi->hdr.dwPictAspectRatioX = m_bih->biWidth;
+        try_mp2vi->hdr.dwPictAspectRatioY = m_bih->biHeight;
+        memcpy(&try_mp2vi->hdr.bmiHeader, m_bih, sizeof(BITMAPINFOHEADER));
+        try_mp2vi->hdr.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        try_mp2vi->hdr.bmiHeader.biCompression = m_pOurType.subtype.Data1;
+
+        /* From MPC-HC */
         if (extra > 0)
         {
-			if(!m_mpegts) {
-				BYTE *extradata = (BYTE *) m_bih + sizeof(BITMAPINFOHEADER) + 4;
-				m_mp2vi.dwFlags = (*extradata & 0x3) + 1;
-				/* printf("NALU length field size %d\n", m_mp2vi.dwFlags); */
-				m_mp2vi.cbSequenceHeader = avc_quant((BYTE *)(m_bih) + sizeof(BITMAPINFOHEADER), (BYTE *)(&m_mp2vi.dwSequenceHeader[0]), extra);
-				// The '4' is from the allocated space of dwSequenceHeader
-				size += m_mp2vi.cbSequenceHeader - 4;
-			} else {
-				m_mp2vi.cbSequenceHeader = extra;
-				memcpy(&m_mp2vi.dwSequenceHeader[0], (BYTE *)(&m_mp2vi.hdr.bmiHeader) + sizeof(BITMAPINFOHEADER), extra);
-			}
+            BYTE *extradata = (BYTE *) m_bih + sizeof(BITMAPINFOHEADER);
+            try_mp2vi->dwProfile = extradata[1];
+            try_mp2vi->dwLevel = extradata[3];
+            if(!m_mpegts)
+              try_mp2vi->dwFlags = (extradata[4] & 3) + 1;
+
+            try_mp2vi->cbSequenceHeader = 0;
+
+            BYTE* src = (BYTE *) extradata + 5;
+            BYTE* dst = (BYTE *) try_mp2vi->dwSequenceHeader;
+
+            BYTE* src_end = (BYTE *) extradata + extra;
+            BYTE* dst_end = (BYTE *) try_mp2vi->dwSequenceHeader + extra;
+
+            for (int i = 0; i < 2; i++)
+            {
+                for (int n = *src++ & 0x1f; n > 0; n--)
+                {
+                    int len = ((src[0] << 8) | src[1]) + 2;
+                    if(src + len > src_end || dst + len > dst_end) { ASSERT(0); break; }
+                    memcpy(dst, src, len);
+                    src += len;
+                    dst += len;
+                    try_mp2vi->cbSequenceHeader += len;
+                }
+            }
         }
 
         m_pOurType.formattype = FORMAT_MPEG2Video;
-        m_pOurType.pbFormat = (BYTE *) &m_mp2vi;
-        m_pOurType.cbFormat = size;
+        m_pOurType.pbFormat = m_vinfo;
+        m_pOurType.cbFormat = cbFormat;
+
+        if ((m_res = m_pInputPin->QueryAccept(&m_pOurType)) == S_OK)
+            return TRUE;
+
+        delete m_vinfo;
+        m_vinfo = NULL;
+
+        // probe FORMAT_VideoInfo
+        cbFormat = sizeof(VIDEOINFOHEADER) + m_bih->biSize;
+        VIDEOINFOHEADER *try_vi = (VIDEOINFOHEADER *) new BYTE[cbFormat];
+        m_vinfo = (BYTE *) try_vi;
+
+        memset(try_vi, 0, cbFormat);
+        memcpy(&try_vi->bmiHeader, m_bih, m_bih->biSize);
+
+        try_vi->rcSource.left = try_vi->rcSource.top = 0;
+        try_vi->rcSource.right = m_bih->biWidth;
+        try_vi->rcSource.bottom = m_bih->biHeight;
+        try_vi->rcTarget = try_vi->rcSource;
+
+        m_pOurType.formattype = FORMAT_VideoInfo;
+        m_pOurType.pbFormat = m_vinfo;
+        m_pOurType.cbFormat = cbFormat;
+
+        if ((m_res = m_pInputPin->QueryAccept(&m_pOurType)) == S_OK)
+            return TRUE;
+
+        delete m_vinfo;
+        m_vinfo = NULL;
+        return FALSE;
     }
 
     BOOL EnumPins(void)
@@ -267,15 +348,20 @@ public:
         IPin *pin;
         PIN_INFO pInfo;
 
+        // FIXME: ffdshow has 2 input pins "In" and "In Text"
+        // there is not way to check mediatype before connection
+        // I think I need a list of pins and then probe for all :(
         while ((m_res = enumpins->Next(1, &pin, NULL)) == S_OK)
         {
             pin->QueryPinInfo(&pInfo);
             /* wprintf(L"Pin: %s - %s\n", pInfo.achName, (pInfo.dir == PINDIR_INPUT) ? L"Input" : L"Output"); */
-            if (pInfo.dir == PINDIR_INPUT)
+            if (!m_pInputPin && (pInfo.dir == PINDIR_INPUT))
                 m_pInputPin = pin;
-            else if (pInfo.dir == PINDIR_OUTPUT)
+            else if (!m_pOutputPin && (pInfo.dir == PINDIR_OUTPUT))
                 m_pOutputPin = pin;
+
             pin->Release();
+            m_pFilter->Release();
         }
 
         enumpins->Release();
@@ -309,14 +395,18 @@ public:
         if (!EnumPins())
             return DSN_FAIL_ENUM;
 
-        SetInputType();
-
-        DSN_CHECK(m_pInputPin->QueryAccept(&m_pOurType), DSN_INPUT_NOTACCEPTED);
+        if (!SetInputType())
+            return DSN_INPUT_NOTACCEPTED;
 
         m_pSFilter = new CSenderFilter();
         m_pOurInput = (CSenderPin *) m_pSFilter->GetPin(0);
+        /* setup Source filename if someone wants to known it (i.e. ffdshow) */
+        m_pSFilter->Load(m_sfname, NULL);
+        m_pSFilter->AddRef();
+
         m_pRFilter = new CRenderFilter();
         m_pOurOutput = (CRenderPin *) m_pRFilter->GetPin(0);
+        m_pRFilter->AddRef();
 
         if (buildgraph)
         {
@@ -324,15 +414,19 @@ public:
             DSN_CHECK(DSVideoCodec::AddToRot(m_pGraph, &m_dwRegister), DSN_FAIL_GRAPH);
             DSN_CHECK(m_pGraph->QueryInterface(IID_IMediaControl, (void **) &m_pMC), DSN_FAIL_GRAPH);
 
+            m_pGraph->SetLogFile((DWORD_PTR) GetStdHandle(STD_OUTPUT_HANDLE));
+            DSN_CHECK(m_pGraph->AddFilter(m_pFilter, L"Binary Codec"), (m_pInputPin = m_pOutputPin = NULL, DSN_FAIL_GRAPH));
             DSN_CHECK(m_pGraph->AddFilter(m_pSFilter, L"DS Sender"), DSN_FAIL_GRAPH);
             DSN_CHECK(m_pGraph->AddFilter(m_pRFilter, L"DS Render"), DSN_FAIL_GRAPH);
-            DSN_CHECK(m_pGraph->AddFilter(m_pFilter, L"Binary Codec"), DSN_FAIL_GRAPH);
             // Connect our output pin to codec input pin otherwise QueryAccept on the codec output pin will fail
             DSN_CHECK(m_pGraph->ConnectDirect(m_pOurInput, m_pInputPin, &m_pOurType), DSN_INPUT_CONNFAILED);
         }
         else
-             /* same of above */
+        {
+            m_res = m_pFilter->JoinFilterGraph((IFilterGraph *) m_pSFilter, L"DSNative Graph");
+            /* same of above */
             DSN_CHECK(m_pInputPin->ReceiveConnection(m_pOurInput, &m_pOurType), DSN_INPUT_CONNFAILED);
+        }
 
         SetOutputType();
 
@@ -344,7 +438,7 @@ public:
         return DSN_OK;
     }
 
-    static HRESULT AddToRot(IUnknown *pUnkGraph, DWORD *pdwRegister) 
+    static HRESULT AddToRot(IUnknown *pUnkGraph, DWORD *pdwRegister)
     {
         IMoniker *pMoniker = NULL;
         IRunningObjectTable *pROT = NULL;
@@ -353,7 +447,7 @@ public:
             return E_FAIL;
 
         WCHAR wsz[256];
-        StringCchPrintfW(wsz, 256, L"FilterGraph %08x pid %08x", (DWORD_PTR) pUnkGraph, GetCurrentProcessId());
+        StringCchPrintfW(wsz, 256, L"FilterGraph %08x pid %08x (dsnative)", (DWORD_PTR) pUnkGraph, GetCurrentProcessId());
         HRESULT hr = CreateItemMoniker(L"!", wsz, &pMoniker);
         if (SUCCEEDED(hr))
         {
@@ -379,17 +473,16 @@ public:
     BOOL StartGraph(void)
     {
         SetupAllocator();
-        if (m_pMC)
-            m_pMC->Run();
-        else
-            m_pFilter->Run(0);
+        if (m_pMC) m_pMC->Run();
+        else m_pFilter->Run(0);
+        Resync(0); // NewSegment + discontinuity /* e.g. ffdshow will not init byte count */
         return TRUE;
     }
 
     dsnerror_t Decode(const BYTE *src, int size, double pts, double *newpts, BYTE *pImage)
     {
         IMediaSample* sample = NULL;
-        REFERENCE_TIME start = (REFERENCE_TIME) (pts * 1E9);
+        REFERENCE_TIME start = PTS2RT(pts);
         REFERENCE_TIME stoptime = start + 1;
         BYTE *ptr;
 
@@ -408,7 +501,7 @@ public:
         DSN_CHECK(m_pImp->Receive(sample), DSN_FAIL_RECEIVE);
         sample->Release();
 
-        *newpts = (double) (m_pOurOutput->GetPTS() / 1E9);
+        *newpts = RT2PTS(m_pOurOutput->GetPTS());
         return DSN_OK;
     }
 
@@ -427,7 +520,7 @@ public:
         {
             // Get the filter's name and IUnknown pointer.
             FILTER_INFO FilterInfo;
-            m_res = m_pFilter->QueryFilterInfo(&FilterInfo); 
+            m_res = m_pFilter->QueryFilterInfo(&FilterInfo);
             IUnknown *pFilterUnk;
             m_res = m_pFilter->QueryInterface(IID_IUnknown, (LPVOID *) &pFilterUnk);
             CAUUID caGUID;
@@ -441,7 +534,7 @@ public:
                     0, 0,                   // Reserved
                     FilterInfo.achName,     // Caption for the dialog box
                     1,                      // Number of objects (just the filter)
-                    &pFilterUnk,            // Array of object pointers. 
+                    &pFilterUnk,            // Array of object pointers.
                     caGUID.cElems,          // Number of property pages
                     caGUID.pElems,          // Array of property page CLSIDs
                     0,                      // Locale identifier
@@ -454,7 +547,7 @@ public:
             // Clean up.
             pFilterUnk->Release();
             /* FIXME: it crashes (broken example on msdn?) */
-            //FilterInfo.pGraph->Release(); 
+            //FilterInfo.pGraph->Release();
             CoTaskMemFree(caGUID.pElems);
         }
         return (!FAILED(m_res));
@@ -493,7 +586,7 @@ public:
         unsigned int bits = m_outfmt & 0xff;
         unsigned int check = m_outfmt ^ bits;
 
-        if (check == mmioFOURCC(0, 'B', 'G', 'R'))
+        if ((check == mmioFOURCC(0, 'B', 'G', 'R')) || (check == mmioFOURCC(0, 'R', 'G', 'B')))
         {
             *biBitCount = bits;
             switch (bits)
@@ -511,10 +604,10 @@ public:
 private:
     HMODULE m_hDll;
     GUID m_guid;
-    char m_fname[MAX_PATH + 1];
+    wchar_t *m_cfname, *m_sfname;
     unsigned int m_outfmt;
     int m_discontinuity;
-	int m_mpegts;
+    int m_mpegts;
     HRESULT m_res;
     BITMAPINFOHEADER *m_bih;
     IBaseFilter *m_pFilter;
@@ -534,15 +627,16 @@ private:
     IMemInputPin *m_pImp;
     IMemAllocator *m_pAll;
     AM_MEDIA_TYPE m_pOurType, m_pDestType;
-    MPEG2VIDEOINFO m_mp2vi;
+    BYTE *m_vinfo;
     VIDEOINFOHEADER m_vi;
     VIDEOINFOHEADER2 m_vi2;
 };
 
 
-extern "C" DSVideoCodec * WINAPI DSOpenVideoCodec(const char *dll, const GUID guid, BITMAPINFOHEADER* bih, unsigned int outfmt, int mpegts, dsnerror_t *err)
+extern "C" DSVideoCodec * WINAPI DSOpenVideoCodec(const char *dll, const GUID guid, BITMAPINFOHEADER* bih,
+                                                  unsigned int outfmt, const char *filename, int mpegts, dsnerror_t *err)
 {
-    DSVideoCodec *vcodec = new DSVideoCodec(dll, guid, bih, outfmt, mpegts);
+    DSVideoCodec *vcodec = new DSVideoCodec(dll, guid, bih, outfmt, filename, mpegts);
     dsnerror_t res = DSN_OK;
 
     if (!vcodec->LoadLibrary())
@@ -580,6 +674,12 @@ extern "C" BOOL WINAPI DSShowPropertyPage(DSVideoCodec *codec)
     return codec->ShowPropertyPage();
 }
 
+extern "C" unsigned int WINAPI DSGetApiVersion(void)
+{
+    return DSN_API_VERSION;
+}
+
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
 {
     switch (reason)
@@ -587,6 +687,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
         case DLL_PROCESS_ATTACH:
         {
             DisableThreadLibraryCalls(hModule);
+#ifdef _DEBUG
+        	DbgInitialise(hModule);
+	        DbgSetModuleLevel(LOG_TRACE,5);
+	        DbgSetModuleLevel(LOG_MEMORY,5);
+	        DbgSetModuleLevel(LOG_ERROR,5);
+	        DbgSetModuleLevel(LOG_TIMING,5);
+	        DbgSetModuleLevel(LOG_LOCKING,5);
+#endif
             return (OleInitialize(NULL) == S_OK);
         }
         case DLL_THREAD_ATTACH:
