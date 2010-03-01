@@ -82,6 +82,9 @@ public:
             if (m_pInputPin) m_res = m_pInputPin->Disconnect();
             if (m_pOutputPin) m_res = m_pOutputPin->Disconnect();
             if (m_pFilter) m_res = m_pFilter->JoinFilterGraph(NULL, NULL);
+
+            if (m_pOurInput) m_res = m_pOurOutput->Disconnect();
+            if (m_pOurOutput) m_res = m_pOurOutput->Disconnect();
         }
 
         if (m_pImp) m_pImp->Release();
@@ -435,6 +438,7 @@ public:
         else
             DSN_CHECK(m_pOutputPin->ReceiveConnection(m_pOurOutput, &m_pDestType), DSN_OUTPUT_CONNFAILED);
 
+        m_pOurOutput->SetFrameSize(m_vi.bmiHeader.biBitCount * m_vi.bmiHeader.biWidth * (m_vi.bmiHeader.biHeight + 2) / 8);
         return DSN_OK;
     }
 
@@ -479,7 +483,7 @@ public:
         return TRUE;
     }
 
-    dsnerror_t Decode(const BYTE *src, int size, double pts, double *newpts, BYTE *pImage)
+    dsnerror_t Decode(const BYTE *src, int size, double pts, double *newpts, BYTE *pImage, int keyframe)
     {
         IMediaSample* sample = NULL;
         REFERENCE_TIME start = PTS2RT(pts);
@@ -492,7 +496,7 @@ public:
         DSN_CHECK(sample->GetPointer(&ptr), DSN_FAIL_DECODESAMPLE);
         memcpy(ptr, src, size);
         DSN_CHECK(sample->SetTime(&start, &stoptime), DSN_FAIL_DECODESAMPLE);
-        DSN_CHECK(sample->SetSyncPoint(0), DSN_FAIL_DECODESAMPLE);
+        DSN_CHECK(sample->SetSyncPoint(keyframe), DSN_FAIL_DECODESAMPLE);
         DSN_CHECK(sample->SetPreroll(pImage ? 0 : 1), DSN_FAIL_DECODESAMPLE);
         DSN_CHECK(sample->SetDiscontinuity(m_discontinuity), DSN_FAIL_DECODESAMPLE);
         m_discontinuity = 0;
@@ -561,10 +565,12 @@ public:
             case mmioFOURCC('Y', 'U', 'Y', '2'):
                 m_pDestType.subtype = MEDIASUBTYPE_YUY2;
                 *biBitCount = 16;
+                *biPlanes = 1;
                 return TRUE;
             case mmioFOURCC('U', 'Y', 'V', 'Y'):
                 m_pDestType.subtype = MEDIASUBTYPE_UYVY;
                 *biBitCount = 16;
+                *biPlanes = 1;
                 return TRUE;
             case mmioFOURCC('Y', 'V', '1', '2'):
                 m_pDestType.subtype = MEDIASUBTYPE_YV12;
@@ -579,6 +585,12 @@ public:
             case mmioFOURCC('Y', 'V', 'U', '9'):
                 m_pDestType.subtype = MEDIASUBTYPE_YVU9;
                 *biBitCount = 9;
+                *biPlanes = 1;
+                return TRUE;
+            case mmioFOURCC('N', 'V', '1', '2'):
+                m_pDestType.subtype = MEDIASUBTYPE_NV12;
+                *biBitCount = 12;
+                *biPlanes = 2;
                 return TRUE;
         }
 
@@ -659,9 +671,9 @@ extern "C" void WINAPI DSCloseVideoCodec(DSVideoCodec *vcodec)
     delete vcodec;
 }
 
-extern "C" dsnerror_t WINAPI DSVideoDecode(DSVideoCodec *vcodec, const BYTE *src, int size, double pts, double *newpts, BYTE *pImage)
+extern "C" dsnerror_t WINAPI DSVideoDecode(DSVideoCodec *vcodec, const BYTE *src, int size, double pts, double *newpts, BYTE *pImage, int keyframe)
 {
-    return vcodec->Decode(src, size, pts, newpts, pImage);
+    return vcodec->Decode(src, size, pts, newpts, pImage, keyframe);
 }
 
 extern "C" dsnerror_t WINAPI DSVideoResync(DSVideoCodec *vcodec, double pts)
