@@ -18,10 +18,10 @@
 	<Configurations>
 		<Configuration
 			Name="Debug|Win32"
-			OutputDirectory="$(SolutionDir)$(ConfigurationName)"
-			IntermediateDirectory="$(ConfigurationName)"
+			OutputDirectory="$(SolutionDir)\bin"
+			IntermediateDirectory="$(SolutionDir)\bin\$(ConfigurationName)"
 			ConfigurationType="2"
-			CharacterSet="0"
+			CharacterSet="1"
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
@@ -41,6 +41,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
+				AdditionalIncludeDirectories="BaseClasses,include"
 				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;_USRDLL;DSNATIVE_EXPORTS"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
@@ -61,8 +62,9 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="strmiids.lib strmbasd.lib comctl32.lib winmm.lib"
+				AdditionalDependencies="strmiids.lib strmbased.lib comctl32.lib winmm.lib quartz.lib"
 				LinkIncremental="2"
+				AdditionalLibraryDirectories="lib"
 				ModuleDefinitionFile="dsnative.def"
 				GenerateDebugInformation="true"
 				SubSystem="2"
@@ -94,10 +96,11 @@
 		</Configuration>
 		<Configuration
 			Name="Release|Win32"
-			OutputDirectory="$(SolutionDir)$(ConfigurationName)"
-			IntermediateDirectory="$(ConfigurationName)"
+			OutputDirectory="$(SolutionDir)\bin"
+			IntermediateDirectory="$(SolutionDir)\bin\$(ConfigurationName)"
 			ConfigurationType="2"
-			CharacterSet="0"
+			UseOfMFC="0"
+			CharacterSet="1"
 			WholeProgramOptimization="1"
 			>
 			<Tool
@@ -117,6 +120,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
+				AdditionalIncludeDirectories="BaseClasses,include"
 				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS;_USRDLL;DSNATIVE_EXPORTS"
 				RuntimeLibrary="0"
 				UsePrecompiledHeader="2"
@@ -135,8 +139,9 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="strmiids.lib strmbase.lib comctl32.lib winmm.lib"
+				AdditionalDependencies="strmiids.lib strmbase.lib comctl32.lib winmm.lib quartz.lib"
 				LinkIncremental="1"
+				AdditionalLibraryDirectories="lib"
 				ModuleDefinitionFile="dsnative.def"
 				GenerateDebugInformation="true"
 				SubSystem="2"
@@ -190,6 +195,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\dump.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\stdafx.cpp"
 				>
 				<FileConfiguration
@@ -216,11 +225,27 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
+				RelativePath=".\dsnative.h"
+				>
+			</File>
+			<File
 				RelativePath=".\dsnerror.h"
 				>
 			</File>
 			<File
 				RelativePath=".\dsnpins.h"
+				>
+			</File>
+			<File
+				RelativePath=".\dump.h"
+				>
+			</File>
+			<File
+				RelativePath=".\dumpuids.h"
+				>
+			</File>
+			<File
+				RelativePath=".\resource.h"
 				>
 			</File>
 			<File

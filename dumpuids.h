@@ -1,0 +1,27 @@
+//------------------------------------------------------------------------------
+// File: DumpUIDs.h
+//
+// Desc: DirectShow sample code - CLSIDs used by the dump renderer.
+//
+// Copyright (c) 1992-2001 Microsoft Corporation.  All rights reserved.
+//------------------------------------------------------------------------------
+
+
+// { 36a5f770-fe4c-11ce-a8ed-00aa002feab5 }
+DEFINE_GUID(CLSID_Dump,
+0x36a5f770, 0xfe4c, 0x11ce, 0xa8, 0xed, 0x00, 0xaa, 0x00, 0x2f, 0xea, 0xb5);
+
+// { C1F400A4-3F08-11D3-9F0B-006008039E37 } 
+DEFINE_GUID(CLSID_NullRenderer, 
+0xC1F400A4, 0x3F08, 0x11D3, 0x9F, 0x0B, 0x00, 0x60, 0x08, 0x03, 0x9e, 0x37);
+
+// { DC257063-045F-4BE2-BD5B-E12279C464F0 }
+DEFINE_GUID(CLSID_MPC_MPEGSplitter,
+0xDC257063, 0x045F, 0x4BE2, 0xBD, 0x5B, 0xE1, 0x22, 0x79, 0xC4, 0x64, 0xF0);
+
+// { 564FD788-86C9-4444-971E-CC4A243DA150 }
+DEFINE_GUID(CLSID_HAALI_Splitter,
+0x564FD788, 0x86C9, 0x4444, 0x97, 0x1E, 0xCC, 0x4A, 0x24, 0x3D, 0xA1, 0x50);
+
+DEFINE_GUID(CLSID_MPC_VTSReader,
+0x773EAEDE, 0xD5EE, 0x4FCE, 0x9C, 0x8F, 0xC4, 0xF5, 0x3D, 0x0A, 0x2F, 0x73);

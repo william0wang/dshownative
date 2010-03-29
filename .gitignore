@@ -3,5 +3,5 @@
 *.suo
 *.lib
 *.vcproj.*.user
-Debug
-Release
+bin
+lib

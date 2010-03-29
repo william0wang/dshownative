@@ -43,9 +43,17 @@
 #include <streams.h>
 #include <comdef.h>
 
+
+#include <initguid.h>
+#include <uuids.h>
+#include <dvdmedia.h>
+#include <dmodshow.h>
+#include <wchar.h>
 #include <commctrl.h>
 
 #include "dsnative.h"
 #include "dsnerror.h"
 #include "dsnpins.h"
+#include "dumpuids.h"
+#include "dump.h"
 

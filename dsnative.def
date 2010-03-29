@@ -7,3 +7,11 @@ DSVideoResync
 DSStrError
 DSShowPropertyPage
 DSGetApiVersion
+
+InitDShowGraphFromFile	PRIVATE
+InitDShowGraphFromFileW	PRIVATE
+StartGraph				PRIVATE
+StopGraph				PRIVATE
+SeekGraph				PRIVATE
+DestroyGraph			PRIVATE
+GetGraphDuration		PRIVATE
