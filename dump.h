@@ -19,6 +19,7 @@ typedef struct {
 	DWORD avgtimeperframe : 20;
 	DWORD reserved : 4;
 	DWORD haveVideo;
+	char *videoDecoder;
 } video_info_t;
 
 typedef struct {
@@ -28,6 +29,7 @@ typedef struct {
 	DWORD wFormatTag;
 	DWORD reserved;
 	DWORD haveAudio;
+	char *audioDecoder;
 } audio_info_t;
 
 typedef struct {

@@ -204,6 +204,52 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
+HRESULT GetInputPinInfo(IBaseFilter *pFilter, char **decoderName)
+{
+	IEnumPins *pEnum = NULL;
+	IPin *pPin = NULL;
+	IPin *fpPin = NULL;
+	HRESULT hr;
+	PIN_INFO pinf;
+	FILTER_INFO finf;
+
+	hr = pFilter->EnumPins(&pEnum);
+	if (FAILED(hr))
+		return hr;
+
+	while(pEnum->Next(1, &pPin, 0) == S_OK) {
+		PIN_DIRECTION PinDirThis;
+		hr = pPin->QueryDirection(&PinDirThis);
+		if (FAILED(hr))	{
+			pPin->Release();
+			pEnum->Release();
+			return hr;
+		}
+		if (PINDIR_INPUT == PinDirThis)	{
+			// Found a match. Return the IPin pointer to the caller.
+			pPin->ConnectedTo(&fpPin);
+			fpPin->QueryPinInfo(&pinf);
+			pinf.pFilter->QueryFilterInfo(&finf);
+			if(!my_wcscmp(finf.achName, L"0002") || !my_wcscmp(finf.achName, L"DirectVobSub"))
+				GetInputPinInfo(pinf.pFilter, decoderName);
+			else {
+				char *name = new char[256];
+				memset(name, 0, 256);
+				WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR, finf.achName, wcslen(finf.achName), name, 256, 0, 0);
+				if(*decoderName) delete *decoderName;
+				*decoderName = name;
+			}
+			pEnum->Release();
+			return S_OK;
+		}
+		// Release the pin for the next time through the loop.
+		pPin->Release();
+	}
+	// No more pins. We did not find a match.
+	pEnum->Release();
+	return E_FAIL; 
+}
+
 // Setup data
 __declspec(naked) pdump_graph_instance_t __stdcall
 InitDShowGraphFromFile(const char * szFileName,		// File to play
@@ -270,6 +316,8 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	int i,len;
 	CLSID clsid;
 	tOffset = 0;
+	pVideoInfo->videoDecoder = NULL;
+	pAudioInfo->audioDecoder = NULL;
 	dump_graph_instance_t *pdgi = (dump_graph_instance_t *)CoTaskMemAlloc(sizeof(dump_graph_instance_t));
 
 	pdgi->pDumpV = pdgi->pDumpA = NULL;
@@ -377,6 +425,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		pEP->Next(1,&pRin,NULL);
 		pRin->ConnectedTo(&pVOut);
 		if (dwVCount-i-1 == dwVideoID) {
+			GetInputPinInfo(pVR[i], &pVideoInfo->videoDecoder);
 			pdgi->pGB->RemoveFilter(pVR[i]);
 			pVOut->QueryPinInfo(&piVDec);
 			piVDec.pFilter->GetClassID(&clsid);
@@ -462,6 +511,7 @@ NONVSRC:
 		pEP->Next(1,&pRin,NULL);
 		pRin->ConnectedTo(&pAOut);
 		if (pSS || dwACount-i-1 == (dwAudioID&0xFFFF)) {
+			GetInputPinInfo(pAR[i], &pAudioInfo->audioDecoder);
 			g_pCallBack = pAudioCallback;
 			g_MediaType = MEDIASUBTYPE_NULL;
 			if (NULL == (pdgi->pDumpA = CreateDumpInstance())) {
