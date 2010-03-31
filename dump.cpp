@@ -351,16 +351,26 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	}
 	pEF->Release();
 	if (dwVCount < dwVideoID+1) {
-		SAFE_RELEASE(pdgi->pGB);
-		CoTaskMemFree(pdgi);
-		CoUninitialize();
-		RETERR(ERR_VR);
+		if(dwAudioID >= 0) {
+			dwVideoID = -1;
+			pVideoCallback = NULL;
+		} else {
+			SAFE_RELEASE(pdgi->pGB);
+			CoTaskMemFree(pdgi);
+			CoUninitialize();
+			RETERR(ERR_VR);
+		}
 	}
 	if (!pSS && dwACount < ((dwAudioID+1)&0xFFFF)) {
-		SAFE_RELEASE(pdgi->pGB);
-		CoTaskMemFree(pdgi);
-		CoUninitialize();
-		RETERR(ERR_AR);
+		if(dwVideoID >= 0) {
+			dwAudioID = -1;
+			pAudioCallback = NULL;
+		} else {
+			SAFE_RELEASE(pdgi->pGB);
+			CoTaskMemFree(pdgi);
+			CoUninitialize();
+			RETERR(ERR_AR);
+		}
 	}
 	for (i=dwVCount-1;i>=0;i--) {
 		pVR[i]->EnumPins(&pEP);
