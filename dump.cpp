@@ -213,7 +213,7 @@ InitDShowGraphFromFile(const char * szFileName,		// File to play
 					   GrabSampleCallbackRoutine pVideoCallback,// Callback routine
 					   GrabSampleCallbackRoutine pAudioCallback,
 					   video_info_t *pVideoInfo,
-					   DWORD *pdwAudioInfo)
+					   audio_info_t *pAudioInfo)
 {
 	__asm {
 		mov eax, [esp+4]
@@ -236,7 +236,7 @@ INV_FNAME:
 
 #define RETERR(x) do{\
 if(pVideoInfo) pVideoInfo->reserved = (x);\
-else if(pdwAudioInfo) *pdwAudioInfo = (x);\
+else if(pAudioInfo) pAudioInfo->reserved = (x);\
 return 0;\
 }while(0)
 
@@ -248,7 +248,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 						GrabSampleCallbackRoutine pVideoCallback,// Callback routine
 						GrabSampleCallbackRoutine pAudioCallback,
 						video_info_t *pVideoInfo,
-						DWORD *pdwAudioInfo)
+						audio_info_t *pAudioInfo)
 {
 	IEnumPins *pEP = NULL;
 	IEnumFilters *pEF = NULL;
@@ -629,17 +629,21 @@ NONASRC:
 			pVideoInfo->aspectY = 0;
 			pVideoInfo->avgtimeperframe = ((VIDEOINFOHEADER *)mt.pbFormat)->AvgTimePerFrame;
 		}
+		pVideoInfo->haveVideo = 1;
 		pVOutSel->Release();
 	} else
-		pVideoInfo->reserved = NULL;
+		pVideoInfo->haveVideo = 0;
 	// Retrieve audio info
 	if (-1 != dwAudioID) {
 		pAOutSel->ConnectionMediaType(&mt);
-		*pdwAudioInfo = ((WAVEFORMATEX *)mt.pbFormat)->nSamplesPerSec | (((WAVEFORMATEX *)mt.pbFormat)->nChannels << 24) |
-					   (((WAVEFORMATEX *)mt.pbFormat)->wBitsPerSample << 25);
+		pAudioInfo->nSamplesPerSec = ((WAVEFORMATEX *)mt.pbFormat)->nSamplesPerSec;
+		pAudioInfo->nChannels = ((WAVEFORMATEX *)mt.pbFormat)->nChannels;
+		pAudioInfo->wBitsPerSample = ((WAVEFORMATEX *)mt.pbFormat)->wBitsPerSample;
+		pAudioInfo->wFormatTag = ((WAVEFORMATEX *)mt.pbFormat)->wFormatTag;
+		pAudioInfo->haveAudio = 1;
 		pAOutSel->Release();
 	} else
-		*pdwAudioInfo = NULL;
+		pAudioInfo->haveAudio = 0;
 	return pdgi;
 }
 

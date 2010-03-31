@@ -1,5 +1,5 @@
-#define DSN_DLL_VERSION 0,0,0,5
-#define DSN_API_VERSION 5
+#define DSN_DLL_VERSION 0,0,0,6
+#define DSN_API_VERSION 6
 
 #define DSN_STRINGIFY(s) DSN_TOSTR(s)
 #define DSN_TOSTR(s) #s

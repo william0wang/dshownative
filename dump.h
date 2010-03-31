@@ -18,7 +18,17 @@ typedef struct {
 	DWORD aspectY : 8;
 	DWORD avgtimeperframe : 20;
 	DWORD reserved : 4;
+	DWORD haveVideo;
 } video_info_t;
+
+typedef struct {
+	DWORD nSamplesPerSec;
+	DWORD nChannels;
+	DWORD wBitsPerSample;
+	DWORD wFormatTag;
+	DWORD reserved;
+	DWORD haveAudio;
+} audio_info_t;
 
 typedef struct {
 	IGraphBuilder *pGB;
@@ -42,7 +52,7 @@ InitDShowGraphFromFile(const char * szFileName,		// File to play
 					   GrabSampleCallbackRoutine pVideoCallback,// Callback routine
 					   GrabSampleCallbackRoutine pAudioCallback,
 					   video_info_t *pVideoInfo,
-					   DWORD *pdwAudioInfo);
+					   audio_info_t *pAudioInfo);
 extern "C" pdump_graph_instance_t __stdcall
 InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 						GUID MediaType,				// Preferred media type, see <uuids.h> (e.g. MEDIASUBTYPE_YV12)
@@ -51,7 +61,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 						GrabSampleCallbackRoutine pVideoCallback,// Callback routine
 						GrabSampleCallbackRoutine pAudioCallback,
 						video_info_t *pVideoInfo,
-						DWORD *pdwAudioInfo);
+						audio_info_t *pAudioInfo);
 extern "C" int __stdcall
 StartGraph(dump_graph_instance_t *pdgi);
 extern "C" int __stdcall
