@@ -204,7 +204,7 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
-HRESULT GetInputPinInfo(IBaseFilter *pFilter, char **decoderName)
+HRESULT GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
 {
 	IEnumPins *pEnum = NULL;
 	IPin *pPin = NULL;
@@ -230,9 +230,12 @@ HRESULT GetInputPinInfo(IBaseFilter *pFilter, char **decoderName)
 			pPin->ConnectedTo(&fpPin);
 			fpPin->QueryPinInfo(&pinf);
 			pinf.pFilter->QueryFilterInfo(&finf);
-			if(!my_wcscmp(finf.achName, L"0002") || !my_wcscmp(finf.achName, L"DirectVobSub"))
-				GetInputPinInfo(pinf.pFilter, decoderName);
-			else {
+			if(!my_wcscmp(finf.achName, szFileName)) {
+				if(*decoderName) delete *decoderName;
+				*decoderName = NULL;
+			} else if(!my_wcscmp(finf.achName, L"0002") || !my_wcscmp(finf.achName, L"DirectVobSub")) {
+				GetInputPinInfo(pinf.pFilter, szFileName, decoderName);
+			} else {
 				char *name = new char[256];
 				memset(name, 0, 256);
 				WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR, finf.achName, wcslen(finf.achName), name, 256, 0, 0);
@@ -425,7 +428,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		pEP->Next(1,&pRin,NULL);
 		pRin->ConnectedTo(&pVOut);
 		if (dwVCount-i-1 == dwVideoID) {
-			GetInputPinInfo(pVR[i], &pVideoInfo->videoDecoder);
+			GetInputPinInfo(pVR[i], szFileName, &pVideoInfo->videoDecoder);
 			pdgi->pGB->RemoveFilter(pVR[i]);
 			pVOut->QueryPinInfo(&piVDec);
 			piVDec.pFilter->GetClassID(&clsid);
@@ -511,7 +514,7 @@ NONVSRC:
 		pEP->Next(1,&pRin,NULL);
 		pRin->ConnectedTo(&pAOut);
 		if (pSS || dwACount-i-1 == (dwAudioID&0xFFFF)) {
-			GetInputPinInfo(pAR[i], &pAudioInfo->audioDecoder);
+			GetInputPinInfo(pAR[i], szFileName, &pAudioInfo->audioDecoder);
 			g_pCallBack = pAudioCallback;
 			g_MediaType = MEDIASUBTYPE_NULL;
 			if (NULL == (pdgi->pDumpA = CreateDumpInstance())) {
