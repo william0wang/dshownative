@@ -755,6 +755,20 @@ StopGraph(dump_graph_instance_t *pdgi)
 int __stdcall
 DestroyGraph(dump_graph_instance_t *pdgi)
 {
+	int x = 0;
+	IEnumFilters *pEF = NULL;
+	IBaseFilter *pFR = NULL;
+	IBaseFilter *xFR[20];
+	pdgi->pGB->EnumFilters(&pEF);
+	while (S_OK == pEF->Next(1,&pFR,NULL)) {
+		xFR[x++] = pFR;
+		if(x >= 20)	break;
+	}
+	pEF->Release();
+	for (int i = 0; i < x; i++) {
+		pdgi->pGB->RemoveFilter(xFR[i]);
+		xFR[i]->Release();
+	}
 #ifdef REGISTER_FILTERGRAPH
 	if (pdgi->dwGraphRegister)
 		RemoveGraphFromRot(pdgi->dwGraphRegister);
