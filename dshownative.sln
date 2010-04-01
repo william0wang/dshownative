@@ -10,6 +10,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dshowtool", "dshowtool.vcpr
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BaseClasses", "BaseClasses\BaseClasses_vc9.vcproj", "{C9A87544-1E80-46EC-9F6A-8F1B3A8EA139}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dumptest", "dumptest\dumptest.vcproj", "{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}"
+	ProjectSection(ProjectDependencies) = postProject
+		{DF438A3C-C72B-4C7E-BCCF-C4E6548E074B} = {DF438A3C-C72B-4C7E-BCCF-C4E6548E074B}
+		{C9A87544-1E80-46EC-9F6A-8F1B3A8EA139} = {C9A87544-1E80-46EC-9F6A-8F1B3A8EA139}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -27,6 +33,9 @@ Global
 		{C9A87544-1E80-46EC-9F6A-8F1B3A8EA139}.Debug|Win32.Build.0 = Debug|Win32
 		{C9A87544-1E80-46EC-9F6A-8F1B3A8EA139}.Release|Win32.ActiveCfg = Release|Win32
 		{C9A87544-1E80-46EC-9F6A-8F1B3A8EA139}.Release|Win32.Build.0 = Release|Win32
+		{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}.Debug|Win32.ActiveCfg = Debug|Win32
+		{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}.Debug|Win32.Build.0 = Debug|Win32
+		{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}.Release|Win32.ActiveCfg = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
