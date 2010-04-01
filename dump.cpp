@@ -204,7 +204,26 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
-void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
+static void RemoveAllFilters(IGraphBuilder *pGB)
+{
+	int x = 0;
+	IEnumFilters *pEF = NULL;
+	IBaseFilter *pFR = NULL;
+	IBaseFilter *xFR[20];
+	if(!pGB) return;
+	pGB->EnumFilters(&pEF);
+	while (S_OK == pEF->Next(1,&pFR,NULL)) {
+		xFR[x++] = pFR;
+		if(x >= 20)	break;
+	}
+	pEF->Release();
+	for (int i = 0; i < x; i++) {
+		pGB->RemoveFilter(xFR[i]);
+		xFR[i]->Release();
+	}
+}
+
+static void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
 {
 	IEnumPins *pEnum = NULL;
 	IPin *pPin = NULL;
@@ -349,6 +368,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		RETERR(ERR_GRAPH);
 	}
 	if (!szFileName) {
+		RemoveAllFilters(pdgi->pGB);
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
 		CoUninitialize();
@@ -357,6 +377,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	len = wcslen(szFileName);
 	if (len > 4 && !my_wcsicmp(szFileName+len-4,L".GRF")) {
 		if (FAILED(LoadGraphFile(pdgi->pGB,szFileName))) {
+			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			CoUninitialize();
@@ -364,12 +385,14 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		}
 	} else if (len > 4 && !my_wcsicmp(szFileName+len-4,L".IFO")) {
 		if (FAILED(LoadIFOFile(pdgi->pGB,szFileName))) {
+			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			CoUninitialize();
 			RETERR(ERR_RENDER);
 		}
 	} else if (FAILED(pdgi->pGB->RenderFile(szFileName,NULL))) {
+		RemoveAllFilters(pdgi->pGB);
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
 		CoUninitialize();
@@ -422,6 +445,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			dwVideoID = -1;
 			pVideoCallback = NULL;
 		} else {
+			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			CoUninitialize();
@@ -433,6 +457,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			dwAudioID = -1;
 			pAudioCallback = NULL;
 		} else {
+			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			CoUninitialize();
@@ -471,6 +496,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			g_pCallBack = pVideoCallback;
 			g_MediaType = MediaType;
 			if (NULL == (pdgi->pDumpV = CreateDumpInstance())) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -483,6 +509,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 				pdgi->pDumpV->EnumPins(&pEP);
 				pEP->Next(1,&pRin,NULL);
 				if (S_OK != pdgi->pGB->Connect(pVOut,pRin)) {
+					RemoveAllFilters(pdgi->pGB);
 					SAFE_RELEASE(pdgi->pGB);
 					CoTaskMemFree(pdgi);
 					CoUninitialize();
@@ -510,6 +537,7 @@ VNULL:
 			// has other output pins, so connect to null renderer
 			if (FAILED(CoCreateInstance(CLSID_NullRenderer, NULL, CLSCTX_INPROC_SERVER,
 				IID_IBaseFilter, (void **)&pVNULL))) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -534,6 +562,7 @@ NONVSRC:
 			g_pCallBack = pAudioCallback;
 			g_MediaType = MEDIASUBTYPE_NULL;
 			if (NULL == (pdgi->pDumpA = CreateDumpInstance())) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -548,6 +577,7 @@ NONVSRC:
 			pEP->Next(1,&pRin,NULL);
 			g_MediaType = MEDIASUBTYPE_NULL;
 			if (S_OK != pdgi->pGB->Connect(pAOut,pRin)) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -573,6 +603,7 @@ ANULL:
 			// no input pin, connect to null renderer
 			if (FAILED(CoCreateInstance(CLSID_NullRenderer, NULL, CLSCTX_INPROC_SERVER,
 				IID_IBaseFilter, (void **)&pANULL))) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -591,6 +622,7 @@ NONASRC:
 
 	if (S_OK != pdgi->pGB->QueryInterface(IID_IMediaControl,(void **)&pdgi->pMC)
 	 || S_OK != pdgi->pGB->QueryInterface(IID_IMediaSeeking,(void **)&pdgi->pMS)) {
+		RemoveAllFilters(pdgi->pGB);
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
 		CoUninitialize();
@@ -622,6 +654,7 @@ NONASRC:
 			pdgi->pDumpV->EnumPins(&pEP);
 			pEP->Next(1,&pRin,NULL);
 			if (S_OK != pdgi->pGB->Connect(pVOut,pRin)) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -638,6 +671,7 @@ NONASRC:
 			pdgi->pDumpA->EnumPins(&pEP);
 			pEP->Next(1,&pRin,NULL);
 			if (S_OK != pdgi->pGB->Connect(pAOut,pRin)) {
+				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				CoUninitialize();
@@ -755,20 +789,7 @@ StopGraph(dump_graph_instance_t *pdgi)
 int __stdcall
 DestroyGraph(dump_graph_instance_t *pdgi)
 {
-	int x = 0;
-	IEnumFilters *pEF = NULL;
-	IBaseFilter *pFR = NULL;
-	IBaseFilter *xFR[20];
-	pdgi->pGB->EnumFilters(&pEF);
-	while (S_OK == pEF->Next(1,&pFR,NULL)) {
-		xFR[x++] = pFR;
-		if(x >= 20)	break;
-	}
-	pEF->Release();
-	for (int i = 0; i < x; i++) {
-		pdgi->pGB->RemoveFilter(xFR[i]);
-		xFR[i]->Release();
-	}
+	RemoveAllFilters(pdgi->pGB);
 #ifdef REGISTER_FILTERGRAPH
 	if (pdgi->dwGraphRegister)
 		RemoveGraphFromRot(pdgi->dwGraphRegister);
