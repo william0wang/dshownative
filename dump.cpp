@@ -213,6 +213,7 @@ static void RemoveAllFilters(IGraphBuilder *pGB)
 	if(!pGB) return;
 	pGB->EnumFilters(&pEF);
 	while (S_OK == pEF->Next(1,&pFR,NULL)) {
+		pFR->Stop();
 		xFR[x++] = pFR;
 		if(x >= 20)	break;
 	}
@@ -807,7 +808,7 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 int __stdcall
 SeekGraph(dump_graph_instance_t *pdgi, REFERENCE_TIME timestamp)
 {
-	HRESULT hr = pdgi->pMS->SetPositions(&timestamp, AM_SEEKING_AbsolutePositioning, NULL, AM_SEEKING_NoPositioning);
+	HRESULT hr = pdgi->pMS->SetPositions(&timestamp, AM_SEEKING_AbsolutePositioning|AM_SEEKING_ReturnTime, NULL, AM_SEEKING_NoPositioning);
 	if (SUCCEEDED(hr)) tOffset = timestamp;
 	return hr;
 }
@@ -951,9 +952,9 @@ STDMETHODIMP CDumpInputPin::Receive(IMediaSample *pSample)
 	pSample->GetTime(&tStart, &tStop);
 
 #ifdef _DEBUG
-	DbgLog((LOG_TRACE, 1, TEXT("tStart(%s), tStop(%s), Diff(%d ms), Bytes(%d)"),
-		   (LPCTSTR) CDisp(tStart),
-		   (LPCTSTR) CDisp(tStop),
+	DbgLog((LOG_TRACE, 1, TEXT("tStart(%I64d), tStop(%I64d), Diff(%d ms), Bytes(%d)"),
+		   tStart,
+		   tStop,
 		   (LONG)((tStart - m_tLast) / 10000),
 		   pSample->GetActualDataLength()));
 
@@ -1019,6 +1020,7 @@ CDump::CDump(LPUNKNOWN pUnk, HRESULT *phr) :
 		*phr = E_OUTOFMEMORY;
 		return;
 	}
+	*phr = S_OK;
 }
 
 // Destructor
