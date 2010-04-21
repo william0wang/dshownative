@@ -35,6 +35,19 @@ GrabSampleCallbackRoutine g_pCallBack;
 WCHAR wszTemp[MAX_PATH];
 
 static REFERENCE_TIME tOffset = 0;
+static const WCHAR * fileName = NULL;
+static HANDLE hWaitRenderFile = NULL;
+static HANDLE hThreadRender = NULL;
+static HRESULT hrRender = E_FAIL;
+
+static DWORD WINAPI DShowRenderFile(IGraphBuilder *pGB)
+{
+	hrRender = E_FAIL;
+	if(fileName)
+		hrRender = pGB->RenderFile(fileName, NULL);
+	SetEvent(hWaitRenderFile);
+	return 0;
+}
 
 static int inline my_wcsicmp(const WCHAR *s, const WCHAR *ext)
 {
@@ -211,7 +224,8 @@ static void RemoveAllFilters(IGraphBuilder *pGB)
 	IBaseFilter *pFR = NULL;
 	IBaseFilter *xFR[20];
 	if(!pGB) return;
-	pGB->EnumFilters(&pEF);
+	if(S_OK != pGB->EnumFilters(&pEF))
+		return;
 	while (S_OK == pEF->Next(1,&pFR,NULL)) {
 		pFR->Stop();
 		xFR[x++] = pFR;
@@ -353,6 +367,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	int i,len;
 	CLSID clsid;
 	tOffset = 0;
+	fileName = szFileName;
 	if(pVideoInfo)
 		pVideoInfo->videoDecoder = NULL;
 	if(pAudioInfo)
@@ -369,7 +384,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		RETERR(ERR_GRAPH);
 	}
 	if (!szFileName) {
-		RemoveAllFilters(pdgi->pGB);
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
 		CoUninitialize();
@@ -378,7 +392,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	len = wcslen(szFileName);
 	if (len > 4 && !my_wcsicmp(szFileName+len-4,L".GRF")) {
 		if (FAILED(LoadGraphFile(pdgi->pGB,szFileName))) {
-			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			CoUninitialize();
@@ -386,18 +399,26 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		}
 	} else if (len > 4 && !my_wcsicmp(szFileName+len-4,L".IFO")) {
 		if (FAILED(LoadIFOFile(pdgi->pGB,szFileName))) {
-			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			CoUninitialize();
 			RETERR(ERR_RENDER);
 		}
-	} else if (FAILED(pdgi->pGB->RenderFile(szFileName,NULL))) {
-		RemoveAllFilters(pdgi->pGB);
-		SAFE_RELEASE(pdgi->pGB);
-		CoTaskMemFree(pdgi);
-		CoUninitialize();
-		RETERR(ERR_RENDER);
+	} else {
+		hWaitRenderFile = CreateEventA(NULL, FALSE, FALSE, NULL);
+		hThreadRender = CreateThread(NULL,0,(LPTHREAD_START_ROUTINE)DShowRenderFile,pdgi->pGB,0,0);
+
+		if(WaitForSingleObject(hWaitRenderFile, 30000) == WAIT_TIMEOUT)
+			TerminateThread(hThreadRender, -1);
+
+		CloseHandle(hWaitRenderFile);
+
+		if (FAILED(hrRender)) {
+			SAFE_RELEASE(pdgi->pGB);
+			CoTaskMemFree(pdgi);
+			CoUninitialize();
+			RETERR(ERR_RENDER);
+		}
 	}
 	pdgi->pGB->EnumFilters(&pEF);
 	while (S_OK == pEF->Next(1,&pFR,NULL)) {
