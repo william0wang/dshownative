@@ -717,12 +717,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
 	        DbgSetModuleLevel(LOG_TIMING,5);
 	        DbgSetModuleLevel(LOG_LOCKING,5);
 #endif
-            return (OleInitialize(NULL) == S_OK);
+			CoInitialize(NULL);
+			break;
         }
         case DLL_THREAD_ATTACH:
         case DLL_THREAD_DETACH:
             return TRUE;
         case DLL_PROCESS_DETACH:
+			CoUninitialize();
             break;
     }
     return TRUE;
