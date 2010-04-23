@@ -34,6 +34,9 @@ GrabSampleCallbackRoutine g_pCallBack;
 
 WCHAR wszTemp[MAX_PATH];
 
+static HMODULE HaaliDLL = NULL;
+static IFileSourceFilter *pHaaliSplitter = NULL;
+static IBaseFilter *pBFHaali = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
@@ -217,25 +220,85 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
+static HRESULT
+LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	DllGetClassObjectFunc pDllGetClassObject;
+	HRESULT hr;
+	//if (FAILED(CoCreateInstance(CLSID_HAALI_Media_Splitter, NULL, CLSCTX_INPROC_SERVER,
+	//	IID_IFileSourceFilter, (void **)&pHaaliSplitter))) {
+		// try load from dll
+		if(!HaaliDLL) {
+			char szFilePath[MAX_PATH + 1];
+			char szDllPath[MAX_PATH + 1];
+			GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+			(strrchr(szFilePath, _T('\\')))[1] = 0;
+			sprintf(szDllPath, "%scodecs\\Haali\\", szFilePath);
+			SetDllDirectoryA(szDllPath);
+			//sprintf_s(szFilePath, "%scodecs\\RealMediaSplitter.ax", szFilePath);
+			HaaliDLL = LoadLibraryA("splitter.ax");
+			if (!HaaliDLL) return E_FAIL;
+		}
+		pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(HaaliDLL,"DllGetClassObject");
+		if (!pDllGetClassObject) return E_FAIL;
+		IClassFactory *pCF;
+		if (hr = FAILED(pDllGetClassObject(CLSID_HAALI_Media_Splitter, IID_IClassFactory, (void**)&pCF)))
+			return hr;
+		if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pHaaliSplitter)))
+			return hr;
+		pCF->Release();
+	//}
+
+	AM_MEDIA_TYPE pmt;
+	if (FAILED(hr = pHaaliSplitter->Load(wszName, &pmt)))
+		return hr;
+	pHaaliSplitter->QueryInterface(IID_IBaseFilter, (void**)&pBFHaali);
+	pGraph->AddFilter(pBFHaali, L"Haali Media Splitter");
+
+	IEnumPins *ep;
+	IPin *pOut;
+
+	pBFHaali->EnumPins(&ep);
+	while (S_OK == ep->Next(1, &pOut, NULL)) {
+		PIN_DIRECTION dir;
+		pOut->QueryDirection(&dir);
+		if (dir == PINDIR_OUTPUT)
+			pGraph->Render(pOut);
+		pOut->Release();
+	}
+	ep->Release();
+	return S_OK;
+}
+
 static void RemoveAllFilters(IGraphBuilder *pGB)
 {
-	int x = 0;
+	int x = 0, y = 0, z = 0;
 	IEnumFilters *pEF = NULL;
 	IBaseFilter *pFR = NULL;
-	IBaseFilter *xFR[20];
+	IBaseFilter *xFR[32];
 	if(!pGB) return;
+
 	if(S_OK != pGB->EnumFilters(&pEF))
 		return;
 	while (S_OK == pEF->Next(1,&pFR,NULL)) {
 		pFR->Stop();
 		xFR[x++] = pFR;
-		if(x >= 20)	break;
+		if(x >= 32)	break;
 	}
 	pEF->Release();
-	for (int i = 0; i < x; i++) {
+	for (int i = x-1; i >= 0; i--) {
 		pGB->RemoveFilter(xFR[i]);
 		xFR[i]->Release();
 	}
+	if(pBFHaali) {
+		pBFHaali->Release();
+		pBFHaali = NULL;
+	}
+	if(pHaaliSplitter) {
+		pHaaliSplitter->Release();
+		pHaaliSplitter = NULL;
+	}
+
 }
 
 static void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
@@ -375,18 +438,14 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	dump_graph_instance_t *pdgi = (dump_graph_instance_t *)CoTaskMemAlloc(sizeof(dump_graph_instance_t));
 
 	pdgi->pDumpV = pdgi->pDumpA = NULL;
-	if (FAILED(CoInitialize(NULL)))
-		RETERR(ERR_COM);
 	// Get the interface for DirectShow's GraphBuilder
 	if (FAILED(CoCreateInstance(CLSID_FilterGraph, NULL, CLSCTX_INPROC_SERVER, 
 								IID_IGraphBuilder, (void **)&pdgi->pGB))) {
-		CoUninitialize();
 		RETERR(ERR_GRAPH);
 	}
 	if (!szFileName) {
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
-		CoUninitialize();
 		RETERR(ERR_RENDER);
 	}
 	len = wcslen(szFileName);
@@ -394,14 +453,12 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		if (FAILED(LoadGraphFile(pdgi->pGB,szFileName))) {
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
-			CoUninitialize();
 			RETERR(ERR_RENDER);
 		}
 	} else if (len > 4 && !my_wcsicmp(szFileName+len-4,L".IFO")) {
 		if (FAILED(LoadIFOFile(pdgi->pGB,szFileName))) {
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
-			CoUninitialize();
 			RETERR(ERR_RENDER);
 		}
 	} else {
@@ -414,10 +471,11 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		CloseHandle(hWaitRenderFile);
 
 		if (FAILED(hrRender)) {
-			SAFE_RELEASE(pdgi->pGB);
-			CoTaskMemFree(pdgi);
-			CoUninitialize();
-			RETERR(ERR_RENDER);
+			if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
+				SAFE_RELEASE(pdgi->pGB);
+				CoTaskMemFree(pdgi);
+				RETERR(ERR_RENDER);
+			}
 		}
 	}
 	pdgi->pGB->EnumFilters(&pEF);
@@ -470,7 +528,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
-			CoUninitialize();
 			RETERR(ERR_VR);
 		}
 	}
@@ -482,7 +539,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			RemoveAllFilters(pdgi->pGB);
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
-			CoUninitialize();
 			RETERR(ERR_AR);
 		}
 	}
@@ -521,7 +577,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_FILTER);
 			}
 			pdgi->pGB->AddFilter(pdgi->pDumpV,L"Dump Video");
@@ -534,7 +589,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 					RemoveAllFilters(pdgi->pGB);
 					SAFE_RELEASE(pdgi->pGB);
 					CoTaskMemFree(pdgi);
-					CoUninitialize();
 					RETERR(ERR_TYPE);
 				}
 			}
@@ -562,7 +616,6 @@ VNULL:
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_FILTER);
 			}
 			pdgi->pGB->AddFilter(pVNULL,NULL);
@@ -587,7 +640,6 @@ NONVSRC:
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_FILTER);
 			}
 			pdgi->pGB->AddFilter(pdgi->pDumpA,L"Dump Audio");
@@ -602,7 +654,6 @@ NONVSRC:
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_TYPE);
 			}
 		} else {
@@ -628,7 +679,6 @@ ANULL:
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_FILTER);
 			}
 			pdgi->pGB->AddFilter(pANULL,NULL);
@@ -647,7 +697,6 @@ NONASRC:
 		RemoveAllFilters(pdgi->pGB);
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
-		CoUninitialize();
 		RETERR(ERR_GRAPH);
 	}
 
@@ -679,7 +728,6 @@ NONASRC:
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_TYPE);
 			}
 			pRin->Release();
@@ -696,7 +744,6 @@ NONASRC:
 				RemoveAllFilters(pdgi->pGB);
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
-				CoUninitialize();
 				RETERR(ERR_TYPE);
 			}
 			pRin->Release();
@@ -822,7 +869,9 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 	SAFE_RELEASE(pdgi->pMC);
 	SAFE_RELEASE(pdgi->pGB);
 	CoTaskMemFree(pdgi);
-//	CoUninitialize();
+	if(HaaliDLL)
+		FreeLibrary(HaaliDLL);
+	HaaliDLL = NULL;
 	return 1;
 }
 
@@ -1094,31 +1143,31 @@ STDMETHODIMP CDump::NonDelegatingQueryInterface(REFIID riid, void ** ppv)
 #ifdef REGISTER_FILTERGRAPH
 HRESULT AddGraphToRot(IUnknown *pUnkGraph, DWORD *pdwRegister) 
 {
-	IMoniker * pMoniker;
-	IRunningObjectTable *pROT;
-	WCHAR wsz[128];
 
-	if (FAILED(GetRunningObjectTable(0, &pROT))) 
+	IMoniker *pMoniker = NULL;
+	IRunningObjectTable *pROT = NULL;
+
+	if (FAILED(GetRunningObjectTable(0, &pROT)))
 		return E_FAIL;
 
-	swprintf_s(wsz, 128, L"FilterGraph %08x pid %08x", (DWORD_PTR)pUnkGraph, 
-			   GetCurrentProcessId());
-
+	WCHAR wsz[256];
+	StringCchPrintfW(wsz, 256, L"FilterGraph %08x pid %08x (dsnative)", (DWORD_PTR) pUnkGraph, GetCurrentProcessId());
 	HRESULT hr = CreateItemMoniker(L"!", wsz, &pMoniker);
-	if (SUCCEEDED(hr)) {
-		hr = pROT->Register(0, pUnkGraph, pMoniker, pdwRegister);
+	if (SUCCEEDED(hr))
+	{
+		hr = pROT->Register(ROTFLAGS_REGISTRATIONKEEPSALIVE, pUnkGraph, pMoniker, pdwRegister);
 		pMoniker->Release();
 	}
-
 	pROT->Release();
+
 	return hr;
 }
 
 void RemoveGraphFromRot(DWORD pdwRegister)
 {
 	IRunningObjectTable *pROT;
-
-	if (SUCCEEDED(GetRunningObjectTable(0, &pROT))) {
+	if (SUCCEEDED(GetRunningObjectTable(0, &pROT)))
+	{
 		pROT->Revoke(pdwRegister);
 		pROT->Release();
 	}
