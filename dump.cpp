@@ -272,24 +272,22 @@ LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 
 static void RemoveAllFilters(IGraphBuilder *pGB)
 {
-	int x = 0, y = 0, z = 0;
 	IEnumFilters *pEF = NULL;
 	IBaseFilter *pFR = NULL;
-	IBaseFilter *xFR[32];
 	if(!pGB) return;
 
 	if(S_OK != pGB->EnumFilters(&pEF))
 		return;
-	while (S_OK == pEF->Next(1,&pFR,NULL)) {
+
+	while(S_OK == pEF->Next(1,&pFR,NULL)) {
 		pFR->Stop();
-		xFR[x++] = pFR;
-		if(x >= 32)	break;
+		pGB->RemoveFilter(pFR);
+		pFR->Release();
+		if(S_OK != pEF->Reset())
+			break;
 	}
 	pEF->Release();
-	for (int i = x-1; i >= 0; i--) {
-		pGB->RemoveFilter(xFR[i]);
-		xFR[i]->Release();
-	}
+
 	if(pBFHaali) {
 		pBFHaali->Release();
 		pBFHaali = NULL;
