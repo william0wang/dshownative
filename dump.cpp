@@ -36,6 +36,7 @@ WCHAR wszTemp[MAX_PATH];
 
 static HMODULE HaaliDLL = NULL;
 static HMODULE hRealDLL = NULL;
+static HMODULE hSplitterDLL = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
@@ -227,9 +228,9 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	HRESULT hr = E_FAIL;
 	IFileSourceFilter *pHaaliSplitter = NULL;
 	IBaseFilter *pBFHaali = NULL;
-	//if (FAILED(CoCreateInstance(CLSID_HAALI_Media_Splitter, NULL, CLSCTX_INPROC_SERVER,
-	//	IID_IFileSourceFilter, (void **)&pHaaliSplitter))) {
-		// try load from dll
+	if (FAILED(CoCreateInstance(CLSID_HAALI_Media_Splitter, NULL, CLSCTX_INPROC_SERVER,
+		IID_IFileSourceFilter, (void **)&pHaaliSplitter))) {
+		//try load from dll
 		if(!HaaliDLL) {
 			SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
 												GetModuleHandleA("Kernel32.dll"),
@@ -259,7 +260,7 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 		if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pHaaliSplitter)))
 			return hr;
 		pCF->Release();
-	//}
+	}
 
 	AM_MEDIA_TYPE pmt;
 	if (FAILED(hr = pHaaliSplitter->Load(wszName, &pmt)))
@@ -270,13 +271,33 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 
 	IEnumPins *ep;
 	IPin *pOut;
+	AM_MEDIA_TYPE *mt;
+	IEnumMediaTypes *emt;
+	bool have_video = false;
+	bool have_audio = false;
+	bool have_subtitle = false;
 
 	pBFHaali->EnumPins(&ep);
 	while (S_OK == ep->Next(1, &pOut, NULL)) {
 		PIN_DIRECTION dir;
 		pOut->QueryDirection(&dir);
-		if (dir == PINDIR_OUTPUT)
-			pGraph->Render(pOut);
+		if (dir == PINDIR_OUTPUT) {
+			pOut->EnumMediaTypes(&emt);
+			emt->Next(1, &mt, NULL);
+			emt->Release();
+			if(!have_video && mt->majortype == MEDIATYPE_Video) {
+				pGraph->Render(pOut);
+				have_video = true;
+			}
+			if(!have_audio && mt->majortype == MEDIATYPE_Audio) {
+				pGraph->Render(pOut);
+				have_audio = true;
+			}
+			if(!have_subtitle && mt->majortype != MEDIATYPE_Audio && mt->majortype != MEDIATYPE_Video) {
+				pGraph->Render(pOut);
+				have_subtitle = true;
+			}
+		}
 		pOut->Release();
 	}
 	ep->Release();
@@ -289,9 +310,7 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
 	DllGetClassObjectFunc pDllGetClassObject;
 	IFileSourceFilter *pRealSource = NULL;
-	IFileSourceFilter *pRealSplitter = NULL;
 	HRESULT hr;
-	bool novideo = false, noaudio = false;
 	// try load from dll
 	if (!hRealDLL) {
 		SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
@@ -326,7 +345,7 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	if (FAILED(hr = pRealSource->Load(wszName, &pmt)))
 		return hr;
 	pRealSource->QueryInterface(IID_IBaseFilter, (void**)&pBFReal);
-	pGraph->AddFilter(pBFReal, L"RealMedia Source");
+	pGraph->AddFilter(pBFReal, L"RealMedia Splitter");
 	pRealSource->Release();
 
 	IBaseFilter *pBFVD;
@@ -375,31 +394,44 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	}
 	ep->Release();
 
-	AM_MEDIA_TYPE mt;
+	AM_MEDIA_TYPE *mt;
+	IEnumMediaTypes *emt;
+	bool have_video = false;
+	bool have_audio = false;
 
 	pBFReal->EnumPins(&ep);
-	//Audio Output Pin
-	ep->Next(1, &pOut, NULL);
-	if(S_OK != pGraph->Connect(pOut, pAIn)) {
-		pGraph->RemoveFilter(pBFAD);
-		pBFAD->Release();
-		pBFAD = NULL;
-		if(S_OK != pGraph->Render(pOut))
-			noaudio = true;
+	while (S_OK == (hr = ep->Next(1, &pOut, NULL))) {
+		PIN_DIRECTION dir;
+		pOut->QueryDirection(&dir);
+		if (dir == PINDIR_OUTPUT) {
+			pOut->EnumMediaTypes(&emt);
+			emt->Next(1, &mt, NULL);
+			emt->Release();
+			if(!have_video && mt->majortype == MEDIATYPE_Video) {
+				if(S_OK != pGraph->Connect(pOut, pVIn)) {
+					pGraph->RemoveFilter(pBFVD);
+					pBFVD->Release();
+					pBFVD = NULL;
+					if(S_OK == pGraph->Render(pOut))
+						have_video = true;
+				} else
+					have_video = true;
+			}
+			if(!have_audio && mt->majortype == MEDIATYPE_Audio) {
+				if(S_OK != pGraph->Connect(pOut, pAIn)) {
+					pGraph->RemoveFilter(pBFAD);
+					pBFAD->Release();
+					pBFAD = NULL;
+					if(S_OK == pGraph->Render(pOut))
+						have_audio = true;
+				} else
+					have_audio = true;
+			}
+		}
+		pOut->Release();
 	}
 	pAIn->Release();
-	pOut->Release();
-	//Video Output Pin
-	ep->Next(1, &pOut, NULL);
-	if(S_OK != pGraph->Connect(pOut, pVIn)) {
-		pGraph->RemoveFilter(pBFVD);
-		pBFVD->Release();
-		pBFVD = NULL;
-		if(S_OK != pGraph->Render(pOut))
-			novideo = true;
-	}
 	pVIn->Release();
-	pOut->Release();
 	ep->Release();
 
 	if(pBFAD) {
@@ -409,7 +441,7 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 			pOut->QueryDirection(&dir);
 			if (dir == PINDIR_OUTPUT) {
 				if(S_OK != pGraph->Render(pOut))
-					noaudio = true;
+					have_audio = false;
 			}
 			pOut->Release();
 		}
@@ -423,17 +455,130 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 			pOut->QueryDirection(&dir);
 			if (dir == PINDIR_OUTPUT) {
 				if(S_OK != pGraph->Render(pOut))
-					novideo = true;
+					have_video = false;
 			}
 			pOut->Release();
 		}
 		pBFVD->Release();
 	}
+	pBFReal->Release();
 
-	if(novideo && noaudio)
+	if(!have_video && !have_audio)
 		return E_FAIL;
 
 	return S_OK;
+}
+
+static HRESULT LoadMPCSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WCHAR* wspName,
+						   const char *dll, const GUID CLSID_Source)
+{
+	DllGetClassObjectFunc pDllGetClassObject;
+	IFileSourceFilter *pSource = NULL;
+	HRESULT hr;
+	bool novideo = false, noaudio = false;
+
+	if(!dll) return E_FAIL;
+
+	// try load from dll
+	SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
+		GetModuleHandleA("Kernel32.dll"),
+		"SetDllDirectoryA");
+	char szFilePath[MAX_PATH + 1];
+	char szDllPath[MAX_PATH + 1];
+	char szOldPath[MAX_PATH + 1];
+	GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+	(strrchr(szFilePath, _T('\\')))[1] = 0;
+	sprintf(szDllPath, "%scodecs\\", szFilePath);
+	if(tSetDllDirectoryA) {
+		tSetDllDirectoryA(szDllPath);
+	} else {
+		GetCurrentDirectoryA(MAX_PATH, szOldPath);
+		SetCurrentDirectoryA(szDllPath);
+	}
+	if (hSplitterDLL)
+		FreeLibrary(hSplitterDLL);
+	hSplitterDLL = LoadLibraryA(dll);
+	if (!hSplitterDLL) return E_FAIL;
+	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hSplitterDLL,"DllGetClassObject");
+	if (!pDllGetClassObject) return E_FAIL;
+	IClassFactory *pCF;
+	if (hr = FAILED(pDllGetClassObject(CLSID_Source, IID_IClassFactory, (void**)&pCF)))
+		return hr;
+	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pSource)))
+		return hr;
+	pCF->Release();
+
+	AM_MEDIA_TYPE pmt;
+	IBaseFilter *pBFSource;
+	if (FAILED(hr = pSource->Load(wszName, &pmt)))
+		return hr;
+	pSource->QueryInterface(IID_IBaseFilter, (void**)&pBFSource);
+	pGraph->AddFilter(pBFSource, wspName);
+	pSource->Release();
+
+	IEnumPins *ep;
+	IPin *pOut;
+	int i = 0;
+	PIN_INFO pif;
+
+	AM_MEDIA_TYPE *mt;
+	IEnumMediaTypes *emt;
+	bool have_video = false;
+	bool have_audio = false;
+	bool have_subtitle = false;
+
+	pBFSource->EnumPins(&ep);
+	while (S_OK == (hr = ep->Next(1, &pOut, NULL))) {
+		PIN_DIRECTION dir;
+		pOut->QueryDirection(&dir);
+		if (dir == PINDIR_OUTPUT) {
+			pOut->EnumMediaTypes(&emt);
+			emt->Next(1, &mt, NULL);
+			emt->Release();
+			if(!have_video && mt->majortype == MEDIATYPE_Video) {
+				pGraph->Render(pOut);
+				have_video = true;
+			}
+			if(!have_audio && mt->majortype == MEDIATYPE_Audio) {
+				pGraph->Render(pOut);
+				have_audio = true;
+			}
+			if(!have_subtitle && mt->majortype != MEDIATYPE_Audio && mt->majortype != MEDIATYPE_Video) {
+				pGraph->Render(pOut);
+				have_subtitle = true;
+			}
+		}
+		pOut->Release();
+	}
+	ep->Release();
+	//pBFSource->Release();
+
+	return S_OK;
+}
+
+static HRESULT LoadMKVFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	return LoadMPCSpliter(pGraph, wszName, L"Matroska Splitter", "MatroskaSplitter.ax", CLSID_MPC_MatroskaSource);
+}
+
+static HRESULT LoadOggFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	return LoadMPCSpliter(pGraph, wszName, L"Ogg Splitter", "OggSplitter.ax", CLSID_MPC_OggSource);
+}
+
+static HRESULT LoadMP4File(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	return LoadMPCSpliter(pGraph, wszName, L"MP4 Splitter", "MP4Splitter.ax", CLSID_MPC_MP4Source);
+}
+
+static HRESULT LoadFlvFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	return LoadMPCSpliter(pGraph, wszName, L"FLV Splitter", "FLVSplitter.ax", CLSID_MPC_FLVSource);
+}
+
+static HRESULT LoadMPEGFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	return LoadMPCSpliter(pGraph, wszName, L"MPEG Splitter", "MPEGSplitter.ax", CLSID_MPC_MPEGSource);
 }
 
 static void RemoveAllFilters(IGraphBuilder *pGB)
@@ -619,8 +764,28 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	} else {
 		if (wext) {
 			if (!wcsicmp(wext,L".rmvb") || !wcsicmp(wext, L".rm") || !wcsicmp(wext, L".ra")) {
-				if (SUCCEEDED(LoadRealFile(pdgi->pGB,szFileName)))
-					goto RENDER_SUCCEEDED:
+				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+			} else if(!wcsicmp(wext,L".mkv") || !wcsicmp(wext,L".mka")) {
+				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadMKVFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+			} else if(!wcsicmp(wext,L".ogm") || !wcsicmp(wext,L".ogg")) {
+				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadOggFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+			} else if(!wcsicmp(wext,L".mp4") || !wcsicmp(wext,L".mov") || !wcsicmp(wext,L".3gp")) {
+				if(LoadMP4File(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+			} else if(!wcsicmp(wext,L".m2ts") || !wcsicmp(wext,L".mts") || !wcsicmp(wext,L".ts")
+				|| !wcsicmp(wext,L".tp") || !wcsicmp(wext,L".mpg") || !wcsicmp(wext,L".mpeg")) {
+				if(LoadMPEGFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+			} else if(!wcsicmp(wext,L".flv")) {
+				if(LoadFlvFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
 			}
 		}
 		hWaitRenderFile = CreateEventA(NULL, FALSE, FALSE, NULL);
@@ -632,11 +797,9 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		CloseHandle(hWaitRenderFile);
 
 		if (FAILED(hrRender)) {
-			if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
-				SAFE_RELEASE(pdgi->pGB);
-				CoTaskMemFree(pdgi);
-				RETERR(ERR_RENDER);
-			}
+			SAFE_RELEASE(pdgi->pGB);
+			CoTaskMemFree(pdgi);
+			RETERR(ERR_RENDER);
 		}
 	}
 RENDER_SUCCEEDED:
@@ -1037,6 +1200,9 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 	if(hRealDLL)
 		FreeLibrary(hRealDLL);
 	hRealDLL = NULL;
+	if (hSplitterDLL)
+		FreeLibrary(hSplitterDLL);
+	hSplitterDLL = NULL;
 	return 1;
 }
 
