@@ -220,23 +220,34 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
-static HRESULT
-LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+typedef BOOL (__stdcall *SetDllDirectoryAType)(LPCSTR lpPathName);
+
+static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
 	DllGetClassObjectFunc pDllGetClassObject;
-	HRESULT hr;
+	HRESULT hr = E_FAIL;
 	//if (FAILED(CoCreateInstance(CLSID_HAALI_Media_Splitter, NULL, CLSCTX_INPROC_SERVER,
 	//	IID_IFileSourceFilter, (void **)&pHaaliSplitter))) {
 		// try load from dll
 		if(!HaaliDLL) {
+			SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
+												GetModuleHandleA("Kernel32.dll"),
+												"SetDllDirectoryA");
 			char szFilePath[MAX_PATH + 1];
 			char szDllPath[MAX_PATH + 1];
+			char szOldPath[MAX_PATH + 1];
 			GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
 			(strrchr(szFilePath, _T('\\')))[1] = 0;
 			sprintf(szDllPath, "%scodecs\\Haali\\", szFilePath);
-			SetDllDirectoryA(szDllPath);
-			//sprintf_s(szFilePath, "%scodecs\\RealMediaSplitter.ax", szFilePath);
+			if(tSetDllDirectoryA) {
+				tSetDllDirectoryA(szDllPath);
+			} else {
+				GetCurrentDirectoryA(MAX_PATH, szOldPath);
+				SetCurrentDirectoryA(szDllPath);
+			}
 			HaaliDLL = LoadLibraryA("splitter.ax");
+			if(!tSetDllDirectoryA)
+				SetCurrentDirectoryA(szOldPath);
 			if (!HaaliDLL) return E_FAIL;
 		}
 		pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(HaaliDLL,"DllGetClassObject");
