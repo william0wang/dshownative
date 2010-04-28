@@ -603,19 +603,26 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		RETERR(ERR_RENDER);
 	}
 	len = wcslen(szFileName);
-	if (len > 4 && !my_wcsicmp(szFileName+len-4,L".GRF")) {
+	const wchar_t *wext = wcsrchr(szFileName, L'.');
+	if (wext && !wcsicmp(wext,L".GRF")) {
 		if (FAILED(LoadGraphFile(pdgi->pGB,szFileName))) {
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			RETERR(ERR_RENDER);
 		}
-	} else if (len > 4 && !my_wcsicmp(szFileName+len-4,L".IFO")) {
+	} else if (wext && !wcsicmp(wext,L".IFO")) {
 		if (FAILED(LoadIFOFile(pdgi->pGB,szFileName))) {
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			RETERR(ERR_RENDER);
 		}
 	} else {
+		if (wext) {
+			if (!wcsicmp(wext,L".rmvb") || !wcsicmp(wext, L".rm") || !wcsicmp(wext, L".ra")) {
+				if (SUCCEEDED(LoadRealFile(pdgi->pGB,szFileName)))
+					goto RENDER_SUCCEEDED:
+			}
+		}
 		hWaitRenderFile = CreateEventA(NULL, FALSE, FALSE, NULL);
 		hThreadRender = CreateThread(NULL,0,(LPTHREAD_START_ROUTINE)DShowRenderFile,pdgi->pGB,0,0);
 
@@ -625,21 +632,14 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		CloseHandle(hWaitRenderFile);
 
 		if (FAILED(hrRender)) {
-			if (len > 5 && (!wcsicmp(szFileName+len-5,L".rmvb") || !wcsicmp(szFileName+len-3,L".rm"))) {
-				if (FAILED(LoadRealFile(pdgi->pGB,szFileName))) {
-					if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
-						SAFE_RELEASE(pdgi->pGB);
-						CoTaskMemFree(pdgi);
-						RETERR(ERR_RENDER);
-					}
-				}
-			} else if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
+			if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				RETERR(ERR_RENDER);
 			}
 		}
 	}
+RENDER_SUCCEEDED:
 	pdgi->pGB->EnumFilters(&pEF);
 	while (S_OK == pEF->Next(1,&pFR,NULL)) {
 		pFR->GetClassID(&clsid);
