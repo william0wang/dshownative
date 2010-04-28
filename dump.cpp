@@ -36,8 +36,6 @@ WCHAR wszTemp[MAX_PATH];
 
 static HMODULE HaaliDLL = NULL;
 static HMODULE hRealDLL = NULL;
-static IFileSourceFilter *pHaaliSplitter = NULL;
-static IBaseFilter *pBFHaali = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
@@ -227,6 +225,8 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
 	DllGetClassObjectFunc pDllGetClassObject;
 	HRESULT hr = E_FAIL;
+	IFileSourceFilter *pHaaliSplitter = NULL;
+	IBaseFilter *pBFHaali = NULL;
 	//if (FAILED(CoCreateInstance(CLSID_HAALI_Media_Splitter, NULL, CLSCTX_INPROC_SERVER,
 	//	IID_IFileSourceFilter, (void **)&pHaaliSplitter))) {
 		// try load from dll
@@ -266,6 +266,7 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 		return hr;
 	pHaaliSplitter->QueryInterface(IID_IBaseFilter, (void**)&pBFHaali);
 	pGraph->AddFilter(pBFHaali, L"Haali Media Splitter");
+	pHaaliSplitter->Release();
 
 	IEnumPins *ep;
 	IPin *pOut;
@@ -279,6 +280,8 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 		pOut->Release();
 	}
 	ep->Release();
+	pBFHaali->Release();
+
 	return S_OK;
 }
 
@@ -299,7 +302,7 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 		char szOldPath[MAX_PATH + 1];
 		GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
 		(strrchr(szFilePath, _T('\\')))[1] = 0;
-		sprintf(szDllPath, "%scodecs\\Haali\\", szFilePath);
+		sprintf(szDllPath, "%scodecs\\", szFilePath);
 		if(tSetDllDirectoryA) {
 			tSetDllDirectoryA(szDllPath);
 		} else {
@@ -324,6 +327,7 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 		return hr;
 	pRealSource->QueryInterface(IID_IBaseFilter, (void**)&pBFReal);
 	pGraph->AddFilter(pBFReal, L"RealMedia Source");
+	pRealSource->Release();
 
 	IBaseFilter *pBFVD;
 	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hRealDLL,"DllGetClassObject");
@@ -449,16 +453,6 @@ static void RemoveAllFilters(IGraphBuilder *pGB)
 			break;
 	}
 	pEF->Release();
-
-	if(pBFHaali) {
-		pBFHaali->Release();
-		pBFHaali = NULL;
-	}
-	if(pHaaliSplitter) {
-		pHaaliSplitter->Release();
-		pHaaliSplitter = NULL;
-	}
-
 }
 
 static void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
