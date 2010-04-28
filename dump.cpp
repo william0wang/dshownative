@@ -35,6 +35,7 @@ GrabSampleCallbackRoutine g_pCallBack;
 WCHAR wszTemp[MAX_PATH];
 
 static HMODULE HaaliDLL = NULL;
+static HMODULE hRealDLL = NULL;
 static IFileSourceFilter *pHaaliSplitter = NULL;
 static IBaseFilter *pBFHaali = NULL;
 static REFERENCE_TIME tOffset = 0;
@@ -281,6 +282,156 @@ static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
+static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	DllGetClassObjectFunc pDllGetClassObject;
+	IFileSourceFilter *pRealSource = NULL;
+	IFileSourceFilter *pRealSplitter = NULL;
+	HRESULT hr;
+	bool novideo = false, noaudio = false;
+	// try load from dll
+	if (!hRealDLL) {
+		SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
+			GetModuleHandleA("Kernel32.dll"),
+			"SetDllDirectoryA");
+		char szFilePath[MAX_PATH + 1];
+		char szDllPath[MAX_PATH + 1];
+		char szOldPath[MAX_PATH + 1];
+		GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+		(strrchr(szFilePath, _T('\\')))[1] = 0;
+		sprintf(szDllPath, "%scodecs\\Haali\\", szFilePath);
+		if(tSetDllDirectoryA) {
+			tSetDllDirectoryA(szDllPath);
+		} else {
+			GetCurrentDirectoryA(MAX_PATH, szOldPath);
+			SetCurrentDirectoryA(szDllPath);
+		}
+		hRealDLL = LoadLibraryA("RealMediaSplitter.ax");
+		if (!hRealDLL) return E_FAIL;
+	}
+	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hRealDLL,"DllGetClassObject");
+	if (!pDllGetClassObject) return E_FAIL;
+	IClassFactory *pCF;
+	if (hr = FAILED(pDllGetClassObject(CLSID_MPC_RealSource, IID_IClassFactory, (void**)&pCF)))
+		return hr;
+	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pRealSource)))
+		return hr;
+	pCF->Release();
+
+	AM_MEDIA_TYPE pmt;
+	IBaseFilter *pBFReal;
+	if (FAILED(hr = pRealSource->Load(wszName, &pmt)))
+		return hr;
+	pRealSource->QueryInterface(IID_IBaseFilter, (void**)&pBFReal);
+	pGraph->AddFilter(pBFReal, L"RealMedia Source");
+
+	IBaseFilter *pBFVD;
+	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hRealDLL,"DllGetClassObject");
+	if (!pDllGetClassObject) return E_FAIL;
+	if (hr = FAILED(pDllGetClassObject(CLSID_MPC_RealVideoDecoder, IID_IClassFactory, (void**)&pCF)))
+		return hr;
+	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IBaseFilter, (void **)&pBFVD)))
+		return hr;
+	pCF->Release();
+	pGraph->AddFilter(pBFVD, L"RealVideo Decoder");
+
+	IBaseFilter *pBFAD;
+	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hRealDLL,"DllGetClassObject");
+	if (!pDllGetClassObject) return E_FAIL;
+	if (hr = FAILED(pDllGetClassObject(CLSID_MPC_RealAudioDecoder, IID_IClassFactory, (void**)&pCF)))
+		return hr;
+	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IBaseFilter, (void **)&pBFAD)))
+		return hr;
+	pCF->Release();
+	pGraph->AddFilter(pBFAD, L"RealAudio Decoder");
+
+	IEnumPins *ep;
+	IPin *pOut, *pVIn, *pAIn;
+	int i = 0;
+
+	pBFVD->EnumPins(&ep);
+	while (S_OK == (hr = ep->Next(1, &pVIn, NULL))) {
+		PIN_DIRECTION dir;
+		pVIn->QueryDirection(&dir);
+		if (dir == PINDIR_INPUT) {
+			break;
+		}
+		pVIn->Release();
+	}
+	ep->Release();
+
+	pBFAD->EnumPins(&ep);
+	while (S_OK == (hr = ep->Next(1, &pAIn, NULL))) {
+		PIN_DIRECTION dir;
+		pAIn->QueryDirection(&dir);
+		if (dir == PINDIR_INPUT) {
+			break;
+		}
+		pAIn->Release();
+	}
+	ep->Release();
+
+	AM_MEDIA_TYPE mt;
+
+	pBFReal->EnumPins(&ep);
+	//Audio Output Pin
+	ep->Next(1, &pOut, NULL);
+	if(S_OK != pGraph->Connect(pOut, pAIn)) {
+		pGraph->RemoveFilter(pBFAD);
+		pBFAD->Release();
+		pBFAD = NULL;
+		if(S_OK != pGraph->Render(pOut))
+			noaudio = true;
+	}
+	pAIn->Release();
+	pOut->Release();
+	//Video Output Pin
+	ep->Next(1, &pOut, NULL);
+	if(S_OK != pGraph->Connect(pOut, pVIn)) {
+		pGraph->RemoveFilter(pBFVD);
+		pBFVD->Release();
+		pBFVD = NULL;
+		if(S_OK != pGraph->Render(pOut))
+			novideo = true;
+	}
+	pVIn->Release();
+	pOut->Release();
+	ep->Release();
+
+	if(pBFAD) {
+		pBFAD->EnumPins(&ep);
+		while (S_OK == (hr = ep->Next(1, &pOut, NULL))) {
+			PIN_DIRECTION dir;
+			pOut->QueryDirection(&dir);
+			if (dir == PINDIR_OUTPUT) {
+				if(S_OK != pGraph->Render(pOut))
+					noaudio = true;
+			}
+			pOut->Release();
+		}
+		pBFAD->Release();
+	}
+
+	if(pBFVD) {
+		pBFVD->EnumPins(&ep);
+		while (S_OK == (hr = ep->Next(1, &pOut, NULL))) {
+			PIN_DIRECTION dir;
+			pOut->QueryDirection(&dir);
+			if (dir == PINDIR_OUTPUT) {
+				if(S_OK != pGraph->Render(pOut))
+					novideo = true;
+			}
+			pOut->Release();
+		}
+		pBFVD->Release();
+	}
+
+	if(novideo && noaudio)
+		return E_FAIL;
+
+	return S_OK;
+}
+
 static void RemoveAllFilters(IGraphBuilder *pGB)
 {
 	IEnumFilters *pEF = NULL;
@@ -480,7 +631,15 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 		CloseHandle(hWaitRenderFile);
 
 		if (FAILED(hrRender)) {
-			if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
+			if (len > 5 && (!wcsicmp(szFileName+len-5,L".rmvb") || !wcsicmp(szFileName+len-3,L".rm"))) {
+				if (FAILED(LoadRealFile(pdgi->pGB,szFileName))) {
+					if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
+						SAFE_RELEASE(pdgi->pGB);
+						CoTaskMemFree(pdgi);
+						RETERR(ERR_RENDER);
+					}
+				}
+			} else if(FAILED(LoadHaaliFile(pdgi->pGB, szFileName))) {
 				SAFE_RELEASE(pdgi->pGB);
 				CoTaskMemFree(pdgi);
 				RETERR(ERR_RENDER);
@@ -881,6 +1040,9 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 	if(HaaliDLL)
 		FreeLibrary(HaaliDLL);
 	HaaliDLL = NULL;
+	if(hRealDLL)
+		FreeLibrary(hRealDLL);
+	hRealDLL = NULL;
 	return 1;
 }
 
