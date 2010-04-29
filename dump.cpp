@@ -915,10 +915,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			} else if(!wcsicmp(wext,L".mp4") || !wcsicmp(wext,L".mov") || !wcsicmp(wext,L".3gp")) {
 				if(LoadMP4File(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".m2ts") || !wcsicmp(wext,L".mts") || !wcsicmp(wext,L".ts")
-				|| !wcsicmp(wext,L".tp") || !wcsicmp(wext,L".mpg") || !wcsicmp(wext,L".mpeg")) {
-				if(LoadMPEGFile(pdgi->pGB,szFileName) == S_OK)
-					goto RENDER_SUCCEEDED;
 			} else if(!wcsicmp(wext,L".flv")) {
 				if(LoadFlvFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
@@ -934,8 +930,6 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 				if(LoadOggFile(pdgi->pGB,szFileName) == S_OK)
-					goto RENDER_SUCCEEDED;
-				if(LoadMPEGFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 			}
 		}
