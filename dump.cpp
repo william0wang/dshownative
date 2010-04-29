@@ -36,6 +36,8 @@ WCHAR wszTemp[MAX_PATH];
 
 static HMODULE HaaliDLL = NULL;
 static HMODULE hRealDLL = NULL;
+static HMODULE hFFDShowDLL = NULL;
+static HMODULE hCoreAVCDLL = NULL;
 static HMODULE hSplitterDLL = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
@@ -222,88 +224,148 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 
 typedef BOOL (__stdcall *SetDllDirectoryAType)(LPCSTR lpPathName);
 
-static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+static BOOL IsRealVideo(GUID subtype)
+{
+	if(subtype == MEDIASUBTYPE_RV40 || subtype == MEDIASUBTYPE_RV30 ||
+		subtype == MEDIASUBTYPE_RV20 || subtype == MEDIASUBTYPE_RV10 ||
+		subtype == MEDIASUBTYPE_RV41)
+		return TRUE;
+
+	return FALSE;
+}
+
+static BOOL IsRealAudio(GUID subtype)
+{
+	if(subtype == MEDIASUBTYPE_14_4 || subtype == MEDIASUBTYPE_28_8 ||
+		subtype == MEDIASUBTYPE_ATRC || subtype == MEDIASUBTYPE_COOK ||
+		subtype == MEDIASUBTYPE_DNET || subtype == MEDIASUBTYPE_SIPR ||
+		subtype == MEDIASUBTYPE_COOK_HAALI)
+		return TRUE;
+
+	return FALSE;
+}
+
+static BOOL IsAVC(GUID subtype)
+{
+	if(subtype == MEDIASUBTYPE_h264 || subtype == MEDIASUBTYPE_X264 ||
+		subtype == MEDIASUBTYPE_x264 || subtype == MEDIASUBTYPE_ArcsoftH264 ||
+		subtype == MEDIASUBTYPE_VSSH || subtype == MEDIASUBTYPE_vssh ||
+		subtype == MEDIASUBTYPE_AVC1 || subtype == MEDIASUBTYPE_avc1)
+		return TRUE;
+
+	return FALSE;
+}
+
+static BOOL IsAAC(GUID subtype)
+{
+	if(subtype == MEDIASUBTYPE_AAC || subtype == MEDIASUBTYPE_MP4A ||
+		subtype == MEDIASUBTYPE_mp4a)
+		return TRUE;
+
+	return FALSE;
+}
+
+static HRESULT LoadDecoder(IGraphBuilder *pGraph, IPin *pOut, HMODULE hModule, const char *filterPath, 
+						   const char *filterDll, const GUID CLSID_Decoder, const wchar_t *filterName)
 {
 	DllGetClassObjectFunc pDllGetClassObject;
-	HRESULT hr = E_FAIL;
-	IFileSourceFilter *pHaaliSplitter = NULL;
-	IBaseFilter *pBFHaali = NULL;
-	if (FAILED(CoCreateInstance(CLSID_HAALI_Media_Splitter, NULL, CLSCTX_INPROC_SERVER,
-		IID_IFileSourceFilter, (void **)&pHaaliSplitter))) {
-		//try load from dll
-		if(!HaaliDLL) {
+	IBaseFilter *pBFDec;
+	HRESULT hr;
+	if (FAILED(CoCreateInstance(CLSID_Decoder, NULL, CLSCTX_INPROC_SERVER, IID_IBaseFilter, (void **)&pBFDec))) {
+		// try load from dll
+		if (!hModule) {
 			SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
-												GetModuleHandleA("Kernel32.dll"),
-												"SetDllDirectoryA");
+				GetModuleHandleA("Kernel32.dll"),
+				"SetDllDirectoryA");
 			char szFilePath[MAX_PATH + 1];
 			char szDllPath[MAX_PATH + 1];
 			char szOldPath[MAX_PATH + 1];
 			GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
 			(strrchr(szFilePath, _T('\\')))[1] = 0;
-			sprintf(szDllPath, "%scodecs\\Haali\\", szFilePath);
+			sprintf(szDllPath, "%scodecs\\%s", szFilePath, filterPath);
 			if(tSetDllDirectoryA) {
 				tSetDllDirectoryA(szDllPath);
 			} else {
 				GetCurrentDirectoryA(MAX_PATH, szOldPath);
 				SetCurrentDirectoryA(szDllPath);
 			}
-			HaaliDLL = LoadLibraryA("splitter.ax");
-			if(!tSetDllDirectoryA)
-				SetCurrentDirectoryA(szOldPath);
-			if (!HaaliDLL) return E_FAIL;
+			hModule = LoadLibraryA(filterDll);
+			if (!hModule) return E_FAIL;
 		}
-		pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(HaaliDLL,"DllGetClassObject");
+		pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hModule,"DllGetClassObject");
 		if (!pDllGetClassObject) return E_FAIL;
 		IClassFactory *pCF;
-		if (hr = FAILED(pDllGetClassObject(CLSID_HAALI_Media_Splitter, IID_IClassFactory, (void**)&pCF)))
+		IUnknown* object;
+		if (hr = FAILED(pDllGetClassObject(CLSID_Decoder, IID_IClassFactory, (void**)&pCF)))
 			return hr;
-		if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pHaaliSplitter)))
+		if (hr = FAILED(pCF->CreateInstance(NULL, IID_IUnknown, (void **)&object)))
 			return hr;
 		pCF->Release();
+		if (hr = FAILED(object->QueryInterface(IID_IBaseFilter, (void **)&pBFDec)))
+			return hr;
+		object->Release();
 	}
-
-	AM_MEDIA_TYPE pmt;
-	if (FAILED(hr = pHaaliSplitter->Load(wszName, &pmt)))
-		return hr;
-	pHaaliSplitter->QueryInterface(IID_IBaseFilter, (void**)&pBFHaali);
-	pGraph->AddFilter(pBFHaali, L"Haali Media Splitter");
-	pHaaliSplitter->Release();
+	pGraph->AddFilter(pBFDec, filterName);
 
 	IEnumPins *ep;
-	IPin *pOut;
-	AM_MEDIA_TYPE *mt;
-	IEnumMediaTypes *emt;
-	bool have_video = false;
-	bool have_audio = false;
-	bool have_subtitle = false;
+	IPin *pIn;
 
-	pBFHaali->EnumPins(&ep);
-	while (S_OK == ep->Next(1, &pOut, NULL)) {
+	pBFDec->EnumPins(&ep);
+	while (S_OK == (hr = ep->Next(1, &pIn, NULL))) {
+		PIN_DIRECTION dir;
+		pIn->QueryDirection(&dir);
+		if (dir == PINDIR_INPUT) {
+			break;
+		}
+		pIn->Release();
+	}
+	ep->Release();
+
+	if(S_OK != pGraph->Connect(pOut, pIn)) {
+		pIn->Release();
+		pBFDec->Release();
+		return E_FAIL;
+	}
+	pIn->Release();
+
+	pBFDec->EnumPins(&ep);
+	while (S_OK == (hr = ep->Next(1, &pOut, NULL))) {
 		PIN_DIRECTION dir;
 		pOut->QueryDirection(&dir);
 		if (dir == PINDIR_OUTPUT) {
-			pOut->EnumMediaTypes(&emt);
-			emt->Next(1, &mt, NULL);
-			emt->Release();
-			if(!have_video && mt->majortype == MEDIATYPE_Video) {
-				pGraph->Render(pOut);
-				have_video = true;
-			}
-			if(!have_audio && mt->majortype == MEDIATYPE_Audio) {
-				pGraph->Render(pOut);
-				have_audio = true;
-			}
-			if(!have_subtitle && mt->majortype != MEDIATYPE_Audio && mt->majortype != MEDIATYPE_Video) {
-				pGraph->Render(pOut);
-				have_subtitle = true;
-			}
+			pGraph->Render(pOut);
 		}
 		pOut->Release();
 	}
-	ep->Release();
-	pBFHaali->Release();
+	pBFDec->Release();
 
 	return S_OK;
+
+}
+
+static HRESULT LoadCoreAVCDecoder(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hCoreAVCDLL, "", "CoreAVCDecoder.ax", CLSID_COREAVC_Video_Decoder, L"CoreAVC Video Decoder");
+}
+
+static HRESULT LoadFFDShowVideo(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hFFDShowDLL, "ffdshow\\", "ffdshow.ax", CLSID_FFDShow_Video_Decoder, L"FFDShow Video Decoder");
+}
+
+static HRESULT LoadFFDShowAudio(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hFFDShowDLL, "ffdshow\\", "ffdshow.ax", CLSID_FFDShow_Audio_Decoder, L"FFDShow Audio Decoder");
+}
+
+static HRESULT LoadRealVideoDecoder(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hRealDLL, "", "RealMediaSplitter.ax", CLSID_MPC_RealVideoDecoder, L"RealVideo Decoder");
+}
+
+static HRESULT LoadRealAudioDecoder(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hRealDLL, "", "RealMediaSplitter.ax", CLSID_MPC_RealAudioDecoder, L"RealAudio Decoder");
 }
 
 static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
@@ -349,8 +411,6 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	pRealSource->Release();
 
 	IBaseFilter *pBFVD;
-	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hRealDLL,"DllGetClassObject");
-	if (!pDllGetClassObject) return E_FAIL;
 	if (hr = FAILED(pDllGetClassObject(CLSID_MPC_RealVideoDecoder, IID_IClassFactory, (void**)&pCF)))
 		return hr;
 	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IBaseFilter, (void **)&pBFVD)))
@@ -359,8 +419,6 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	pGraph->AddFilter(pBFVD, L"RealVideo Decoder");
 
 	IBaseFilter *pBFAD;
-	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hRealDLL,"DllGetClassObject");
-	if (!pDllGetClassObject) return E_FAIL;
 	if (hr = FAILED(pDllGetClassObject(CLSID_MPC_RealAudioDecoder, IID_IClassFactory, (void**)&pCF)))
 		return hr;
 	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IBaseFilter, (void **)&pBFAD)))
@@ -469,44 +527,44 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
-static HRESULT LoadMPCSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WCHAR* wspName,
-						   const char *dll, const GUID CLSID_Source)
+static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WCHAR* wspName,
+						   HMODULE hModule, const char *path, const char *dll, const GUID CLSID_Source)
 {
 	DllGetClassObjectFunc pDllGetClassObject;
 	IFileSourceFilter *pSource = NULL;
 	HRESULT hr;
 	bool novideo = false, noaudio = false;
 
-	if(!dll) return E_FAIL;
-
-	// try load from dll
-	SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
-		GetModuleHandleA("Kernel32.dll"),
-		"SetDllDirectoryA");
-	char szFilePath[MAX_PATH + 1];
-	char szDllPath[MAX_PATH + 1];
-	char szOldPath[MAX_PATH + 1];
-	GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
-	(strrchr(szFilePath, _T('\\')))[1] = 0;
-	sprintf(szDllPath, "%scodecs\\", szFilePath);
-	if(tSetDllDirectoryA) {
-		tSetDllDirectoryA(szDllPath);
-	} else {
-		GetCurrentDirectoryA(MAX_PATH, szOldPath);
-		SetCurrentDirectoryA(szDllPath);
+	if (FAILED(CoCreateInstance(CLSID_Source, NULL, CLSCTX_INPROC_SERVER, IID_IFileSourceFilter, (void **)&pSource))) {
+		// try load from dll
+		if(!hModule) {
+			SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
+				GetModuleHandleA("Kernel32.dll"),
+				"SetDllDirectoryA");
+			char szFilePath[MAX_PATH + 1];
+			char szDllPath[MAX_PATH + 1];
+			char szOldPath[MAX_PATH + 1];
+			GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+			(strrchr(szFilePath, _T('\\')))[1] = 0;
+			sprintf(szDllPath, "%scodecs\\%s", szFilePath, path);
+			if(tSetDllDirectoryA) {
+				tSetDllDirectoryA(szDllPath);
+			} else {
+				GetCurrentDirectoryA(MAX_PATH, szOldPath);
+				SetCurrentDirectoryA(szDllPath);
+			}
+			hModule = LoadLibraryA(dll);
+			if (!hModule) return E_FAIL;
+		}
+		pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hModule,"DllGetClassObject");
+		if (!pDllGetClassObject) return E_FAIL;
+		IClassFactory *pCF;
+		if (hr = FAILED(pDllGetClassObject(CLSID_Source, IID_IClassFactory, (void**)&pCF)))
+			return hr;
+		if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pSource)))
+			return hr;
+		pCF->Release();
 	}
-	if (hSplitterDLL)
-		FreeLibrary(hSplitterDLL);
-	hSplitterDLL = LoadLibraryA(dll);
-	if (!hSplitterDLL) return E_FAIL;
-	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hSplitterDLL,"DllGetClassObject");
-	if (!pDllGetClassObject) return E_FAIL;
-	IClassFactory *pCF;
-	if (hr = FAILED(pDllGetClassObject(CLSID_Source, IID_IClassFactory, (void**)&pCF)))
-		return hr;
-	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pSource)))
-		return hr;
-	pCF->Release();
 
 	AM_MEDIA_TYPE pmt;
 	IBaseFilter *pBFSource;
@@ -536,12 +594,28 @@ static HRESULT LoadMPCSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const
 			emt->Next(1, &mt, NULL);
 			emt->Release();
 			if(!have_video && mt->majortype == MEDIATYPE_Video) {
-				pGraph->Render(pOut);
-				have_video = true;
+				if(IsRealVideo(mt->subtype)) {
+					if(LoadRealVideoDecoder(pGraph, pOut) == S_OK)
+						have_video = true;
+				} else if(IsAVC(mt->subtype)) {
+					if(LoadCoreAVCDecoder(pGraph, pOut) == S_OK)
+						have_video = true;
+					else if(LoadFFDShowVideo(pGraph, pOut) == S_OK)
+						have_video = true;
+				}
+				if(!have_video && pGraph->Render(pOut) == S_OK)
+					have_video = true;
 			}
 			if(!have_audio && mt->majortype == MEDIATYPE_Audio) {
-				pGraph->Render(pOut);
-				have_audio = true;
+				if(IsRealAudio(mt->subtype)) {
+					if(LoadRealAudioDecoder(pGraph, pOut) == S_OK)
+						have_audio = true;
+				} else if(IsAAC(mt->subtype)) {
+					if(LoadFFDShowAudio(pGraph, pOut) == S_OK)
+						have_audio = true;
+				}
+				if(!have_audio && pGraph->Render(pOut) == S_OK)
+					have_audio = true;
 			}
 			if(!have_subtitle && mt->majortype != MEDIATYPE_Audio && mt->majortype != MEDIATYPE_Video) {
 				pGraph->Render(pOut);
@@ -556,29 +630,34 @@ static HRESULT LoadMPCSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const
 	return S_OK;
 }
 
+static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	return LoadSpliter(pGraph, wszName, L"Haali Media Splitter", HaaliDLL, "Haali\\", "MatroskaSplitter.ax", CLSID_HAALI_Media_Splitter);
+}
+
 static HRESULT LoadMKVFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
-	return LoadMPCSpliter(pGraph, wszName, L"Matroska Splitter", "MatroskaSplitter.ax", CLSID_MPC_MatroskaSource);
+	return LoadSpliter(pGraph, wszName, L"Matroska Splitter", hSplitterDLL, "", "MatroskaSplitter.ax", CLSID_MPC_MatroskaSource);
 }
 
 static HRESULT LoadOggFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
-	return LoadMPCSpliter(pGraph, wszName, L"Ogg Splitter", "OggSplitter.ax", CLSID_MPC_OggSource);
+	return LoadSpliter(pGraph, wszName, L"Ogg Splitter", hSplitterDLL, "", "OggSplitter.ax", CLSID_MPC_OggSource);
 }
 
 static HRESULT LoadMP4File(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
-	return LoadMPCSpliter(pGraph, wszName, L"MP4 Splitter", "MP4Splitter.ax", CLSID_MPC_MP4Source);
+	return LoadSpliter(pGraph, wszName, L"MP4 Splitter", hSplitterDLL, "", "MP4Splitter.ax", CLSID_MPC_MP4Source);
 }
 
 static HRESULT LoadFlvFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
-	return LoadMPCSpliter(pGraph, wszName, L"FLV Splitter", "FLVSplitter.ax", CLSID_MPC_FLVSource);
+	return LoadSpliter(pGraph, wszName, L"FLV Splitter", hSplitterDLL, "", "FLVSplitter.ax", CLSID_MPC_FLVSource);
 }
 
 static HRESULT LoadMPEGFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
-	return LoadMPCSpliter(pGraph, wszName, L"MPEG Splitter", "MPEGSplitter.ax", CLSID_MPC_MPEGSource);
+	return LoadSpliter(pGraph, wszName, L"MPEG Splitter", hSplitterDLL, "", "MPEGSplitter.ax", CLSID_MPC_MPEGSource);
 }
 
 static void RemoveAllFilters(IGraphBuilder *pGB)
@@ -598,6 +677,10 @@ static void RemoveAllFilters(IGraphBuilder *pGB)
 			break;
 	}
 	pEF->Release();
+
+	//if(pFCoreAVC)
+	//	pFCoreAVC->Release();
+	//pFCoreAVC = NULL;
 }
 
 static void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
@@ -766,7 +849,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			if (!wcsicmp(wext,L".rmvb") || !wcsicmp(wext, L".rm") || !wcsicmp(wext, L".ra")) {
 				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".mkv") || !wcsicmp(wext,L".mka")) {
+			} else if(!wcsicmp(wext,L".mkv") || !wcsicmp(wext,L".mka") || !wcsicmp(wext,L".omkv")) {
 				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 				if(LoadMKVFile(pdgi->pGB,szFileName) == S_OK)
@@ -785,6 +868,21 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 					goto RENDER_SUCCEEDED;
 			} else if(!wcsicmp(wext,L".flv")) {
 				if(LoadFlvFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+			} else {
+				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadMP4File(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadMKVFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadFlvFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadOggFile(pdgi->pGB,szFileName) == S_OK)
+					goto RENDER_SUCCEEDED;
+				if(LoadMPEGFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 			}
 		}
@@ -1180,6 +1278,8 @@ StopGraph(dump_graph_instance_t *pdgi)
 	return 1;
 }
 
+#define SAFE_FREELIBRARY(x) { if(x) FreeLibrary(x); x = NULL; }
+
 int __stdcall
 DestroyGraph(dump_graph_instance_t *pdgi)
 {
@@ -1194,15 +1294,11 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 	SAFE_RELEASE(pdgi->pMC);
 	SAFE_RELEASE(pdgi->pGB);
 	CoTaskMemFree(pdgi);
-	if(HaaliDLL)
-		FreeLibrary(HaaliDLL);
-	HaaliDLL = NULL;
-	if(hRealDLL)
-		FreeLibrary(hRealDLL);
-	hRealDLL = NULL;
-	if (hSplitterDLL)
-		FreeLibrary(hSplitterDLL);
-	hSplitterDLL = NULL;
+	SAFE_FREELIBRARY(HaaliDLL);
+	SAFE_FREELIBRARY(hRealDLL);
+	SAFE_FREELIBRARY(hFFDShowDLL);
+	SAFE_FREELIBRARY(hCoreAVCDLL);
+	SAFE_FREELIBRARY(hSplitterDLL);
 	return 1;
 }
 
