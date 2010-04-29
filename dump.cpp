@@ -29,21 +29,28 @@ DEFINE_GUID(CLSID_OverlayMixer2,
 const short  par[][2] = {{8,9},{10,11},{16,15},{12,11},{32,27},{40,33},{4,3},{15,11},{64,45},{16,11},{160,99},{18,11},{20,11},{64,33},{24,11},{80,33},{32,11},{0,0}};
 const double parval[] = {8./9.,10./11.,16./15.,12./11.,32./27.,40./33.,4./3.,15./11.,64./45.,16./11.,160./99.,18./11.,20./11.,64./33.,24./11.,80./33.,32./11.};
 
+#define SAFE_FREELIBRARY(x) { if(x) FreeLibrary(x); x = NULL; }
+
 GUID g_MediaType;
 GrabSampleCallbackRoutine g_pCallBack;
 
+typedef BOOL (__stdcall *SetDllDirectoryAType)(LPCSTR lpPathName);
+
 WCHAR wszTemp[MAX_PATH];
 
-static HMODULE HaaliDLL = NULL;
 static HMODULE hRealDLL = NULL;
+static HMODULE hHaaliDLL = NULL;
 static HMODULE hFFDShowDLL = NULL;
 static HMODULE hCoreAVCDLL = NULL;
+static HMODULE hDivXH264DLL = NULL;
 static HMODULE hSplitterDLL = NULL;
+static HMODULE hMPCMediaDecDLL = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
 static HANDLE hThreadRender = NULL;
 static HRESULT hrRender = E_FAIL;
+SetDllDirectoryAType tSetDllDirectoryA = NULL;
 
 static DWORD WINAPI DShowRenderFile(IGraphBuilder *pGB)
 {
@@ -222,8 +229,6 @@ LoadIFOFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return S_OK;
 }
 
-typedef BOOL (__stdcall *SetDllDirectoryAType)(LPCSTR lpPathName);
-
 static BOOL IsRealVideo(GUID subtype)
 {
 	if(subtype == MEDIASUBTYPE_RV40 || subtype == MEDIASUBTYPE_RV30 ||
@@ -265,6 +270,14 @@ static BOOL IsAAC(GUID subtype)
 	return FALSE;
 }
 
+static BOOL IsVorbis2(GUID subtype)
+{
+	if(subtype == MEDIASUBTYPE_Vorbis2)
+		return TRUE;
+
+	return FALSE;
+}
+
 static HRESULT LoadDecoder(IGraphBuilder *pGraph, IPin *pOut, HMODULE hModule, const char *filterPath, 
 						   const char *filterDll, const GUID CLSID_Decoder, const wchar_t *filterName)
 {
@@ -272,11 +285,10 @@ static HRESULT LoadDecoder(IGraphBuilder *pGraph, IPin *pOut, HMODULE hModule, c
 	IBaseFilter *pBFDec;
 	HRESULT hr;
 	if (FAILED(CoCreateInstance(CLSID_Decoder, NULL, CLSCTX_INPROC_SERVER, IID_IBaseFilter, (void **)&pBFDec))) {
+		if(CLSID_Decoder == CLSID_COREAVC_Video_Decoder)
+			return S_FALSE;
 		// try load from dll
 		if (!hModule) {
-			SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
-				GetModuleHandleA("Kernel32.dll"),
-				"SetDllDirectoryA");
 			char szFilePath[MAX_PATH + 1];
 			char szDllPath[MAX_PATH + 1];
 			char szOldPath[MAX_PATH + 1];
@@ -305,7 +317,11 @@ static HRESULT LoadDecoder(IGraphBuilder *pGraph, IPin *pOut, HMODULE hModule, c
 			return hr;
 		object->Release();
 	}
-	pGraph->AddFilter(pBFDec, filterName);
+
+	if(pGraph->AddFilter(pBFDec, filterName) != S_OK) {
+		pBFDec->Release();
+		return E_FAIL;
+	}
 
 	IEnumPins *ep;
 	IPin *pIn;
@@ -348,6 +364,11 @@ static HRESULT LoadCoreAVCDecoder(IGraphBuilder *pGraph, IPin *pOut)
 	return LoadDecoder(pGraph, pOut, hCoreAVCDLL, "", "CoreAVCDecoder.ax", CLSID_COREAVC_Video_Decoder, L"CoreAVC Video Decoder");
 }
 
+static HRESULT LoadDivXH264Decoder(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hDivXH264DLL, "", "DivXDecH264.ax", CLSID_DIVXH264_Video_Decoder, L"DivX H264 Video Decoder");
+}
+
 static HRESULT LoadFFDShowVideo(IGraphBuilder *pGraph, IPin *pOut)
 {
 	return LoadDecoder(pGraph, pOut, hFFDShowDLL, "ffdshow\\", "ffdshow.ax", CLSID_FFDShow_Video_Decoder, L"FFDShow Video Decoder");
@@ -356,6 +377,16 @@ static HRESULT LoadFFDShowVideo(IGraphBuilder *pGraph, IPin *pOut)
 static HRESULT LoadFFDShowAudio(IGraphBuilder *pGraph, IPin *pOut)
 {
 	return LoadDecoder(pGraph, pOut, hFFDShowDLL, "ffdshow\\", "ffdshow.ax", CLSID_FFDShow_Audio_Decoder, L"FFDShow Audio Decoder");
+}
+
+static HRESULT LoadMPCVideoDec(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hMPCMediaDecDLL, "", "MPCMediaDec.ax", CLSID_MPC_Video_Decoder, L"MPC Video Decoder");
+}
+
+static HRESULT LoadMPCAudioDec(IGraphBuilder *pGraph, IPin *pOut)
+{
+	return LoadDecoder(pGraph, pOut, hMPCMediaDecDLL, "", "MPCMediaDec.ax", CLSID_MPC_Audio_Decoder, L"MPC Audio Decoder");
 }
 
 static HRESULT LoadRealVideoDecoder(IGraphBuilder *pGraph, IPin *pOut)
@@ -375,9 +406,6 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	HRESULT hr;
 	// try load from dll
 	if (!hRealDLL) {
-		SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
-			GetModuleHandleA("Kernel32.dll"),
-			"SetDllDirectoryA");
 		char szFilePath[MAX_PATH + 1];
 		char szDllPath[MAX_PATH + 1];
 		char szOldPath[MAX_PATH + 1];
@@ -538,9 +566,6 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 	if (FAILED(CoCreateInstance(CLSID_Source, NULL, CLSCTX_INPROC_SERVER, IID_IFileSourceFilter, (void **)&pSource))) {
 		// try load from dll
 		if(!hModule) {
-			SetDllDirectoryAType tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
-				GetModuleHandleA("Kernel32.dll"),
-				"SetDllDirectoryA");
 			char szFilePath[MAX_PATH + 1];
 			char szDllPath[MAX_PATH + 1];
 			char szOldPath[MAX_PATH + 1];
@@ -568,10 +593,18 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 
 	AM_MEDIA_TYPE pmt;
 	IBaseFilter *pBFSource;
-	if (FAILED(hr = pSource->Load(wszName, &pmt)))
+	if (FAILED(hr = pSource->Load(wszName, &pmt))) {
+		pSource->Release();
 		return hr;
-	pSource->QueryInterface(IID_IBaseFilter, (void**)&pBFSource);
-	pGraph->AddFilter(pBFSource, wspName);
+	}
+	if(FAILED(hr = pSource->QueryInterface(IID_IBaseFilter, (void**)&pBFSource))) {
+		pSource->Release();
+		return hr;
+	}
+	if (FAILED(hr = pGraph->AddFilter(pBFSource, wspName))) {
+		pSource->Release();
+		return hr;
+	}
 	pSource->Release();
 
 	IEnumPins *ep;
@@ -600,10 +633,14 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 				} else if(IsAVC(mt->subtype)) {
 					if(LoadCoreAVCDecoder(pGraph, pOut) == S_OK)
 						have_video = true;
-					else if(LoadFFDShowVideo(pGraph, pOut) == S_OK)
+					else if(LoadDivXH264Decoder(pGraph, pOut) == S_OK)
+						have_video = true;
+					else if(LoadMPCVideoDec(pGraph, pOut) == S_OK)
 						have_video = true;
 				}
 				if(!have_video && pGraph->Render(pOut) == S_OK)
+					have_video = true;
+				else if(!have_video && LoadMPCVideoDec(pGraph, pOut) == S_OK)
 					have_video = true;
 			}
 			if(!have_audio && mt->majortype == MEDIATYPE_Audio) {
@@ -613,9 +650,13 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 				} else if(IsAAC(mt->subtype)) {
 					if(LoadFFDShowAudio(pGraph, pOut) == S_OK)
 						have_audio = true;
+					else if(LoadMPCAudioDec(pGraph, pOut) == S_OK)
+						have_video = true;
 				}
 				if(!have_audio && pGraph->Render(pOut) == S_OK)
 					have_audio = true;
+				else if(!have_audio && LoadMPCAudioDec(pGraph, pOut) == S_OK)
+					have_video = true;
 			}
 			if(!have_subtitle && mt->majortype != MEDIATYPE_Audio && mt->majortype != MEDIATYPE_Video) {
 				pGraph->Render(pOut);
@@ -632,7 +673,7 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 
 static HRESULT LoadHaaliFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 {
-	return LoadSpliter(pGraph, wszName, L"Haali Media Splitter", HaaliDLL, "Haali\\", "MatroskaSplitter.ax", CLSID_HAALI_Media_Splitter);
+	return LoadSpliter(pGraph, wszName, L"Haali Media Splitter", hHaaliDLL, "Haali\\", "MatroskaSplitter.ax", CLSID_HAALI_Media_Splitter);
 }
 
 static HRESULT LoadMKVFile(IGraphBuilder *pGraph, const WCHAR* wszName)
@@ -820,6 +861,8 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	dump_graph_instance_t *pdgi = (dump_graph_instance_t *)CoTaskMemAlloc(sizeof(dump_graph_instance_t));
 
 	pdgi->pDumpV = pdgi->pDumpA = NULL;
+	tSetDllDirectoryA = (SetDllDirectoryAType)GetProcAddress(
+				GetModuleHandleA("Kernel32.dll"), "SetDllDirectoryA");
 	// Get the interface for DirectShow's GraphBuilder
 	if (FAILED(CoCreateInstance(CLSID_FilterGraph, NULL, CLSCTX_INPROC_SERVER, 
 								IID_IGraphBuilder, (void **)&pdgi->pGB))) {
@@ -849,7 +892,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			if (!wcsicmp(wext,L".rmvb") || !wcsicmp(wext, L".rm") || !wcsicmp(wext, L".ra")) {
 				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".mkv") || !wcsicmp(wext,L".mka") || !wcsicmp(wext,L".omkv")) {
+			} else if(!wcsicmp(wext,L".mkv") || !wcsicmp(wext,L".mka")) {
 				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 				if(LoadMKVFile(pdgi->pGB,szFileName) == S_OK)
@@ -1117,17 +1160,23 @@ NONASRC:
 
 	if (S_OK != pdgi->pGB->QueryInterface(IID_IMediaControl,(void **)&pdgi->pMC)
 	 || S_OK != pdgi->pGB->QueryInterface(IID_IMediaSeeking,(void **)&pdgi->pMS)) {
-		RemoveAllFilters(pdgi->pGB);
 		SAFE_RELEASE(pdgi->pGB);
 		CoTaskMemFree(pdgi);
 		RETERR(ERR_GRAPH);
 	}
+	OAFilterState fs = State_Stopped;
+	REFERENCE_TIME ts = 0;
+	pdgi->pMC->Run();
+	while(fs != State_Running) {
+		pdgi->pMC->GetState(INFINITE,&fs);
+		Sleep(30);
+	}
+	pdgi->pMC->Stop();
+	pdgi->pMS->SetPositions(&ts, AM_SEEKING_AbsolutePositioning | AM_SEEKING_NoFlush, NULL, AM_SEEKING_NoPositioning);
 
 	if (pSS) {
 		DWORD strmcount = 0;
 		AM_MEDIA_TYPE *pmt;
-		OAFilterState fs;
-		REFERENCE_TIME ts = 0;
 		DWORD j = (dwAudioID & 0xF);
 		pSS->Count(&strmcount);
 		for (i = 0; i < (int)strmcount;i++) {
@@ -1140,10 +1189,10 @@ NONASRC:
 			DeleteMediaType(pmt);
 		}
 		pSS->Release();
-		pdgi->pMC->Pause();
-		pdgi->pMC->GetState(INFINITE,&fs);
-		pdgi->pMC->Stop();
-		pdgi->pMS->SetPositions(&ts, AM_SEEKING_AbsolutePositioning | AM_SEEKING_NoFlush, NULL, AM_SEEKING_NoPositioning);
+		//pdgi->pMC->Pause();
+		//pdgi->pMC->GetState(INFINITE,&fs);
+		//pdgi->pMC->Stop();
+		//pdgi->pMS->SetPositions(&ts, AM_SEEKING_AbsolutePositioning | AM_SEEKING_NoFlush, NULL, AM_SEEKING_NoPositioning);
 		if (pVOutSel) {
 			pdgi->pDumpV->EnumPins(&pEP);
 			pEP->Next(1,&pRin,NULL);
@@ -1249,6 +1298,11 @@ NONASRC:
 		pAOutSel->Release();
 	} else
 		pAudioInfo->haveAudio = 0;
+	pdgi->pMC->GetState(INFINITE,&fs);
+	while(fs != State_Stopped) {
+		pdgi->pMC->GetState(INFINITE,&fs);
+		Sleep(30);
+	}
 	return pdgi;
 }
 
@@ -1278,8 +1332,6 @@ StopGraph(dump_graph_instance_t *pdgi)
 	return 1;
 }
 
-#define SAFE_FREELIBRARY(x) { if(x) FreeLibrary(x); x = NULL; }
-
 int __stdcall
 DestroyGraph(dump_graph_instance_t *pdgi)
 {
@@ -1294,11 +1346,13 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 	SAFE_RELEASE(pdgi->pMC);
 	SAFE_RELEASE(pdgi->pGB);
 	CoTaskMemFree(pdgi);
-	SAFE_FREELIBRARY(HaaliDLL);
+	SAFE_FREELIBRARY(hHaaliDLL);
 	SAFE_FREELIBRARY(hRealDLL);
 	SAFE_FREELIBRARY(hFFDShowDLL);
 	SAFE_FREELIBRARY(hCoreAVCDLL);
 	SAFE_FREELIBRARY(hSplitterDLL);
+	SAFE_FREELIBRARY(hDivXH264DLL);
+	SAFE_FREELIBRARY(hMPCMediaDecDLL);
 	return 1;
 }
 
