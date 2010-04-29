@@ -270,9 +270,20 @@ static BOOL IsAAC(GUID subtype)
 	return FALSE;
 }
 
-static BOOL IsVorbis2(GUID subtype)
+BOOL IsAC3(GUID subtype)
 {
-	if(subtype == MEDIASUBTYPE_Vorbis2)
+	if(subtype == MEDIASUBTYPE_DOLBY_AC3 ||
+		subtype == MEDIASUBTYPE_WAVE_DOLBY_AC3 ||
+		subtype == MEDIASUBTYPE_DOLBY_DDPLUS ||
+		subtype == MEDIASUBTYPE_DOLBY_TRUEHD)
+		return TRUE;
+
+	return FALSE;
+}
+
+BOOL IsDTS(GUID subtype)
+{
+	if(subtype == MEDIASUBTYPE_DTS || subtype == MEDIASUBTYPE_WAVE_DTS)
 		return TRUE;
 
 	return FALSE;
@@ -652,6 +663,9 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 						have_audio = true;
 					else if(LoadMPCAudioDec(pGraph, pOut) == S_OK)
 						have_video = true;
+				} else if(IsAC3(mt->subtype) || IsDTS(mt->subtype)) {
+					if(LoadMPCAudioDec(pGraph, pOut) == S_OK)
+						have_video = true;
 				}
 				if(!have_audio && pGraph->Render(pOut) == S_OK)
 					have_audio = true;
@@ -718,10 +732,6 @@ static void RemoveAllFilters(IGraphBuilder *pGB)
 			break;
 	}
 	pEF->Release();
-
-	//if(pFCoreAVC)
-	//	pFCoreAVC->Release();
-	//pFCoreAVC = NULL;
 }
 
 static void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char **decoderName)
