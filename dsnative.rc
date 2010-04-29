@@ -23,7 +23,7 @@ BEGIN
 			VALUE "FileDescription", "Direct Show Native Wrapper"
 			VALUE "FileVersion", DSN_STRINGIFY(DSN_DLL_VERSION)
 			VALUE "InternalName", "dshownative.dll"
-			VALUE "LegalCopyright", "Copyright (C) 2010 Gianluigi Tiesi, roozhou, William Wang"
+			VALUE "LegalCopyright", "Copyright (C) 2010 William Wang, roozhou, Gianluigi Tiesi"
 			VALUE "OriginalFilename", "dshownative.dll"
 			VALUE "ProductName", "DirectShow Native Wrapper"
 			VALUE "ProductVersion", DSN_STRINGIFY(DSN_DLL_VERSION)
