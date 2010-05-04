@@ -50,6 +50,7 @@ static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
 static HANDLE hThreadRender = NULL;
+static char **demuxerInfo = NULL;
 static HRESULT hrRender = E_FAIL;
 SetDllDirectoryAType tSetDllDirectoryA = NULL;
 
@@ -601,6 +602,12 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	if(!have_video && !have_audio)
 		return E_FAIL;
 
+	if(demuxerInfo) {
+		char *name = new char[256];
+		sprintf(name, "RealMedia Splitter");
+		*demuxerInfo = name;
+	}
+
 	return S_OK;
 }
 
@@ -716,6 +723,13 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 	}
 	ep->Release();
 	pBFSource->Release();
+
+	if(demuxerInfo) {
+		char *name = new char[256];
+		memset(name, 0, 256);
+		WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR, wspName, wcslen(wspName), name, 256, 0, 0);
+		*demuxerInfo = name;
+	}
 
 	return S_OK;
 }
@@ -901,8 +915,11 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	fileName = szFileName;
 	if(pVideoInfo)
 		pVideoInfo->videoDecoder = NULL;
-	if(pAudioInfo)
+	if(pAudioInfo) {
+		pAudioInfo->demuxer = NULL;
 		pAudioInfo->audioDecoder = NULL;
+		demuxerInfo = &pAudioInfo->demuxer;
+	}
 	dump_graph_instance_t *pdgi = (dump_graph_instance_t *)CoTaskMemAlloc(sizeof(dump_graph_instance_t));
 
 	pdgi->pDumpV = pdgi->pDumpA = NULL;

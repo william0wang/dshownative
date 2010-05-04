@@ -30,6 +30,7 @@ typedef struct {
 	DWORD reserved;
 	DWORD haveAudio;
 	char *audioDecoder;
+	char *demuxer;
 } audio_info_t;
 
 typedef struct {
