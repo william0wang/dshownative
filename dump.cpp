@@ -45,6 +45,7 @@ static HMODULE hCoreAVCDLL = NULL;
 static HMODULE hDivXH264DLL = NULL;
 static HMODULE hSplitterDLL = NULL;
 static HMODULE hMPCMediaDecDLL = NULL;
+static HMODULE hVSFilterDLL = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
@@ -287,6 +288,43 @@ BOOL IsDTS(GUID subtype)
 		return TRUE;
 
 	return FALSE;
+}
+
+static HRESULT AddVSFilter(IGraphBuilder *pGraph)
+{
+	DllGetClassObjectFunc pDllGetClassObject;
+	IBaseFilter *pBFVSFilter;
+	const GUID CLSID_Decoder = CLSID_DirectVobSub_Autoload;
+	HRESULT hr;
+	if (FAILED(CoCreateInstance(CLSID_Decoder, NULL, CLSCTX_INPROC_SERVER, IID_IBaseFilter, (void **)&pBFVSFilter))) {
+		// try load from dll
+		if (!hVSFilterDLL) {
+			char szFilePath[MAX_PATH + 1];
+			char szDllPath[MAX_PATH + 1];
+			GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+			(strrchr(szFilePath, _T('\\')))[1] = 0;
+			sprintf(szDllPath, "%scodecs\\vsfilter.dll", szFilePath);
+			hVSFilterDLL = LoadLibraryA(szDllPath);
+			if (!hVSFilterDLL) return E_FAIL;
+		}
+		pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hVSFilterDLL,"DllGetClassObject");
+		if (!pDllGetClassObject) return E_FAIL;
+		IClassFactory *pCF;
+		IUnknown* object;
+		if (hr = FAILED(pDllGetClassObject(CLSID_Decoder, IID_IClassFactory, (void**)&pCF)))
+			return hr;
+		if (hr = FAILED(pCF->CreateInstance(NULL, IID_IUnknown, (void **)&object)))
+			return hr;
+		pCF->Release();
+		if (hr = FAILED(object->QueryInterface(IID_IBaseFilter, (void **)&pBFVSFilter)))
+			return hr;
+		object->Release();
+	}
+
+	hr = pGraph->AddFilter(pBFVSFilter, L"DirectVobSub");
+
+	pBFVSFilter->Release();
+	return hr;
 }
 
 static HRESULT LoadDecoder(IGraphBuilder *pGraph, IPin *pOut, HMODULE hModule, const char *filterPath, 
@@ -627,7 +665,6 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 	IEnumMediaTypes *emt;
 	bool have_video = false;
 	bool have_audio = false;
-	bool have_subtitle = false;
 
 	pBFSource->EnumPins(&ep);
 	while (S_OK == (hr = ep->Next(1, &pOut, NULL))) {
@@ -672,15 +709,13 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 				else if(!have_audio && LoadMPCAudioDec(pGraph, pOut) == S_OK)
 					have_video = true;
 			}
-			if(!have_subtitle && mt->majortype != MEDIATYPE_Audio && mt->majortype != MEDIATYPE_Video) {
+			if(mt->majortype == MEDIATYPE_Subtitle || mt->majortype == MEDIATYPE_Text)
 				pGraph->Render(pOut);
-				have_subtitle = true;
-			}
 		}
 		pOut->Release();
 	}
 	ep->Release();
-	//pBFSource->Release();
+	pBFSource->Release();
 
 	return S_OK;
 }
@@ -898,6 +933,7 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			RETERR(ERR_RENDER);
 		}
 	} else {
+		AddVSFilter(pdgi->pGB);
 		if (wext) {
 			if (!wcsicmp(wext,L".rmvb") || !wcsicmp(wext, L".rm") || !wcsicmp(wext, L".ra")) {
 				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
@@ -1357,6 +1393,7 @@ DestroyGraph(dump_graph_instance_t *pdgi)
 	SAFE_FREELIBRARY(hSplitterDLL);
 	SAFE_FREELIBRARY(hDivXH264DLL);
 	SAFE_FREELIBRARY(hMPCMediaDecDLL);
+	SAFE_FREELIBRARY(hVSFilterDLL);
 	return 1;
 }
 
