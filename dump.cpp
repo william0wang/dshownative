@@ -63,47 +63,6 @@ static DWORD WINAPI DShowRenderFile(IGraphBuilder *pGB)
 	return 0;
 }
 
-static int inline my_wcsicmp(const WCHAR *s, const WCHAR *ext)
-{
-	WCHAR c,d = *ext++;
-	do {
-		c = *s++;
-		if ((USHORT)(c-'a') < 26) c -= 'a'-'A';
-		if (c != d) return 1;
-	}while (d = *ext++);
-	return 0;
-}
-
-static int inline my_wcscmp(const WCHAR *s, const WCHAR *ext)
-{
-	WCHAR c,d = *ext++;
-	do {
-		c = *s++;
-		if (c != d) return 1;
-	}while (d = *ext++);
-	return 0;
-}
-
-static inline const WCHAR* my_wcschr(const WCHAR *s, WCHAR c)
-{
-	do {
-		if (*s == c) return s;
-		s++;
-	} while(*s);
-	return NULL;
-}
-
-static int inline my_wtoi(const WCHAR *s)
-{
-	int r = 0;
-	USHORT c = *s - '0';
-	while (c < 10) {
-		r = r*10 + c;
-		c = *s++;
-	}
-	return r;
-}
-
 static IBaseFilter *
 CreateDumpInstance()
 {
@@ -813,7 +772,7 @@ static void GetInputPinInfo(IBaseFilter *pFilter, const WCHAR* szFileName, char 
 			return;
 		}
 
-		if(my_wcscmp(finf.achName, szFileName)) {
+		if(wcscmp(finf.achName, szFileName)) {
 			char *name = new char[256];
 			memset(name, 0, 256);
 			WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR, finf.achName, wcslen(finf.achName), name, 256, 0, 0);
@@ -836,9 +795,9 @@ void GetPinInfo(IPin *inPin, const WCHAR* szFileName, char **decoderName)
 
 	if (FAILED(pinf.pFilter->QueryFilterInfo(&finf)))
 		return;
-	if(!my_wcscmp(finf.achName, L"0002") || !my_wcscmp(finf.achName, L"DirectVobSub")) {
+	if(!wcscmp(finf.achName, L"0002") || !wcscmp(finf.achName, L"DirectVobSub")) {
 		GetInputPinInfo(pinf.pFilter, szFileName, decoderName);
-	} else if(my_wcscmp(finf.achName, szFileName)) {
+	} else if(wcscmp(finf.achName, szFileName)) {
 		char *name = new char[256];
 		memset(name, 0, 256);
 		WideCharToMultiByte(CP_ACP, WC_COMPOSITECHECK | WC_DEFAULTCHAR, finf.achName, wcslen(finf.achName), name, 256, 0, 0);
@@ -1010,7 +969,7 @@ RENDER_SUCCEEDED:
 			pAR[dwACount++] = pFR;
 		else if (!(dwAudioID&0x10000) && CLSID_DMOWrapperFilter == clsid) {
 			pFR->QueryFilterInfo(&fiVR);
-			if (0 == my_wcscmp(fiVR.achName,L"WMAudio Decoder DMO")) {
+			if (0 == wcscmp(fiVR.achName,L"WMAudio Decoder DMO")) {
 				IPropertyBag *pPropertyBag = NULL;
 				if(SUCCEEDED(pFR->QueryInterface(IID_IPropertyBag, (void**)&pPropertyBag))) {
 					VARIANT myVar;
@@ -1225,7 +1184,7 @@ NONASRC:
 	REFERENCE_TIME ts = 0;
 	pdgi->pMC->Run();
 	while(fs != State_Running) {
-		pdgi->pMC->GetState(INFINITE,&fs);
+		pdgi->pMC->GetState(INFINITE, &fs);
 		Sleep(30);
 	}
 	pdgi->pMC->Stop();
@@ -1313,8 +1272,8 @@ NONASRC:
 			}
 			if (pVideoInfo->width == 720) {// Fix incorrect DVD AR returned by decoder
 				const WCHAR *ext = szFileName+len-4;
-				if (!my_wcsicmp(ext,L".IFO") || !my_wcsicmp(ext,L".VOB")
-				 || !my_wcsicmp(ext,L".MPG") || !my_wcsicmp(ext,L".M2V")) {
+				if (!wcsicmp(ext,L".IFO") || !wcsicmp(ext,L".VOB")
+				 || !wcsicmp(ext,L".MPG") || !wcsicmp(ext,L".M2V")) {
 					if (pVideoInfo->height == 480) {// NTSC
 						if (i == 8 && j == 9) {
 							i = 10; j = 11;
