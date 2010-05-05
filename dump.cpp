@@ -375,6 +375,19 @@ static HRESULT LoadCoreAVCDecoder(IGraphBuilder *pGraph, IPin *pOut)
 
 static HRESULT LoadDivXH264Decoder(IGraphBuilder *pGraph, IPin *pOut)
 {
+	HKEY hKey;
+	unsigned char data[4];
+	DWORD type=REG_DWORD;
+	DWORD dwLength = 4, dwDisp;
+	memset(data, 0, dwLength);
+	if(RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\DivXNetworks\\DivX4Windows", 0, KEY_ALL_ACCESS, &hKey) == ERROR_SUCCESS) {
+		RegSetValueExA(hKey, "AVC 7x Logo", 0, REG_DWORD, data, dwLength);
+		RegCloseKey(hKey);
+	} else if(RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\DivXNetworks\\DivX4Windows", 0,
+		NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwDisp) == ERROR_SUCCESS) {
+			RegSetValueExA(hKey, "AVC 7x Logo", 0, REG_DWORD, data, dwLength);
+			RegCloseKey(hKey);
+	}
 	return LoadDecoder(pGraph, pOut, hDivXH264DLL, "", "DivXDecH264.ax", CLSID_DIVXH264_Video_Decoder, L"DivX H264 Video Decoder");
 }
 
