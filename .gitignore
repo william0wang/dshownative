@@ -2,6 +2,9 @@
 *.ncb
 *.suo
 *.lib
-*.vcproj.*.user
+*.ipch
+*.sdf
+*.opensdf
+*.*.user
 bin
 lib

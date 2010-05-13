@@ -637,8 +637,6 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 
 	IEnumPins *ep;
 	IPin *pOut;
-	int i = 0;
-	PIN_INFO pif;
 
 	AM_MEDIA_TYPE *mt;
 	IEnumMediaTypes *emt;
@@ -909,13 +907,13 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	}
 	len = wcslen(szFileName);
 	const wchar_t *wext = wcsrchr(szFileName, L'.');
-	if (wext && !wcsicmp(wext,L".GRF")) {
+	if (wext && !_wcsicmp(wext,L".GRF")) {
 		if (FAILED(LoadGraphFile(pdgi->pGB,szFileName))) {
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
 			RETERR(ERR_RENDER);
 		}
-	} else if (wext && !wcsicmp(wext,L".IFO")) {
+	} else if (wext && !_wcsicmp(wext,L".IFO")) {
 		if (FAILED(LoadIFOFile(pdgi->pGB,szFileName))) {
 			SAFE_RELEASE(pdgi->pGB);
 			CoTaskMemFree(pdgi);
@@ -924,23 +922,23 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 	} else {
 		AddVSFilter(pdgi->pGB);
 		if (wext) {
-			if (!wcsicmp(wext,L".rmvb") || !wcsicmp(wext, L".rm") || !wcsicmp(wext, L".ra")) {
+			if (!_wcsicmp(wext,L".rmvb") || !_wcsicmp(wext, L".rm") || !_wcsicmp(wext, L".ra")) {
 				if(LoadRealFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".mkv") || !wcsicmp(wext,L".mka")) {
+			} else if(!_wcsicmp(wext,L".mkv") || !_wcsicmp(wext,L".mka")) {
 				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 				if(LoadMKVFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".ogm") || !wcsicmp(wext,L".ogg")) {
+			} else if(!_wcsicmp(wext,L".ogm") || !_wcsicmp(wext,L".ogg")) {
 				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 				if(LoadOggFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".mp4") || !wcsicmp(wext,L".mov") || !wcsicmp(wext,L".3gp")) {
+			} else if(!_wcsicmp(wext,L".mp4") || !_wcsicmp(wext,L".mov") || !_wcsicmp(wext,L".3gp")) {
 				if(LoadMP4File(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
-			} else if(!wcsicmp(wext,L".flv")) {
+			} else if(!_wcsicmp(wext,L".flv")) {
 				if(LoadFlvFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
 			} else {
@@ -1285,8 +1283,8 @@ NONASRC:
 			}
 			if (pVideoInfo->width == 720) {// Fix incorrect DVD AR returned by decoder
 				const WCHAR *ext = szFileName+len-4;
-				if (!wcsicmp(ext,L".IFO") || !wcsicmp(ext,L".VOB")
-				 || !wcsicmp(ext,L".MPG") || !wcsicmp(ext,L".M2V")) {
+				if (!_wcsicmp(ext,L".IFO") || !_wcsicmp(ext,L".VOB")
+				 || !_wcsicmp(ext,L".MPG") || !_wcsicmp(ext,L".M2V")) {
 					if (pVideoInfo->height == 480) {// NTSC
 						if (i == 8 && j == 9) {
 							i = 10; j = 11;
