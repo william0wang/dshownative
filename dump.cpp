@@ -21,6 +21,7 @@
 
 
 #include "stdafx.h"
+#include <shellapi.h>
 
 DEFINE_GUID(CLSID_OverlayMixer2,
 0xA0025E90, 0xE45B, 0x11D1, 0xAB, 0xE9, 0x0, 0xA0, 0xC9, 0x05, 0xF3, 0x75);
@@ -734,11 +735,36 @@ static HRESULT LoadMPEGFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return LoadSpliter(pGraph, wszName, L"MPEG Splitter", hSplitterDLL, "", "MPEGSplitter.ax", CLSID_MPC_MPEGSource);
 }
 
+static void RemoveCoreAVCTray()
+{
+	HWND hWnd = FindWindow(NULL, L"CoreAVC Video Decoder Properties");
+	if(!hWnd)
+		return;
+	NOTIFYICONDATA nfcd;
+	nfcd.hWnd = hWnd;
+	nfcd.uID = 1031;
+	Shell_NotifyIcon(NIM_DELETE, &nfcd);
+}
+
+static void RemoveVSFilterTray()
+{
+	HWND hWnd = FindWindow(NULL, L"DVSWND");
+	if(!hWnd)
+		return;
+	NOTIFYICONDATA nfcd;
+	nfcd.hWnd = hWnd;
+	nfcd.uID = 214;
+	Shell_NotifyIcon(NIM_DELETE, &nfcd);
+}
+
 static void RemoveAllFilters(IGraphBuilder *pGB)
 {
 	IEnumFilters *pEF = NULL;
 	IBaseFilter *pFR = NULL;
 	if(!pGB) return;
+
+	RemoveCoreAVCTray();
+	RemoveVSFilterTray();
 
 	if(S_OK != pGB->EnumFilters(&pEF))
 		return;
