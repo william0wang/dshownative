@@ -735,6 +735,31 @@ static HRESULT LoadMPEGFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return LoadSpliter(pGraph, wszName, L"MPEG Splitter", hSplitterDLL, "", "MPEGSplitter.ax", CLSID_MPC_MPEGSource);
 }
 
+static DWORD WINAPI RefreshSystemTray()
+{
+
+	RECT WindowRect;
+	POINT CursorPos;
+	int x, y;
+	HWND hwndShell = FindWindow(L"Shell_TrayWnd", NULL);
+	if(!hwndShell)
+		return 0;
+	HWND hwnd = FindWindowEx(hwndShell, 0, L"TrayNotifyWnd", NULL );
+	if(!hwnd)
+		return 0;
+
+	GetCursorPos(&CursorPos);
+	GetWindowRect(hwnd, &WindowRect);
+	y = WindowRect.top+5;
+	for(x = WindowRect.right-100; x > WindowRect.left-100; x-- ) {
+		SetCursorPos(x, y);
+	}
+	SetCursorPos(CursorPos.x, CursorPos.y);
+	// Redraw tray window (to fix bug in multi-line tray area)
+	RedrawWindow(hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
+	return 0;
+}
+
 static void RemoveCoreAVCTray()
 {
 	HWND hWnd = FindWindow(NULL, L"CoreAVC Video Decoder Properties");
