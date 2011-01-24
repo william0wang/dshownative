@@ -1,4 +1,4 @@
-#define DSN_DLL_VERSION 0.1.1.7
+#define DSN_DLL_VERSION 0.1.1.8
 #define DSN_API_VERSION 7
 
 #define DSN_STRINGIFY(s) DSN_TOSTR(s)

@@ -533,7 +533,13 @@ static HRESULT LoadRealFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 					pGraph->RemoveFilter(pBFAD);
 					pBFAD->Release();
 					pBFAD = NULL;
-					if(S_OK == pGraph->Render(pOut))
+					if(IsAAC(mt->subtype)) {
+						if(LoadFFDShowAudio(pGraph, pOut) == S_OK)
+							have_audio = true;
+						else if(LoadMPCAudioDec(pGraph, pOut) == S_OK)
+							have_video = true;
+					}
+					if(!have_video && S_OK == pGraph->Render(pOut))
 						have_audio = true;
 				} else
 					have_audio = true;
