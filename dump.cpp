@@ -47,6 +47,8 @@ static HMODULE hDivXH264DLL = NULL;
 static HMODULE hSplitterDLL = NULL;
 static HMODULE hMPCMediaDecDLL = NULL;
 static HMODULE hVSFilterDLL = NULL;
+static HMODULE hCsfSourceDLL = NULL;
+static HMODULE hCsfRenderDLL = NULL;
 static REFERENCE_TIME tOffset = 0;
 static const WCHAR * fileName = NULL;
 static HANDLE hWaitRenderFile = NULL;
@@ -735,6 +737,105 @@ static HRESULT LoadMPEGFile(IGraphBuilder *pGraph, const WCHAR* wszName)
 	return LoadSpliter(pGraph, wszName, L"MPEG Splitter", hSplitterDLL, "", "MPEGSplitter.ax", CLSID_MPC_MPEGSource);
 }
 
+
+static HRESULT LoadRender(IGraphBuilder *pGraph, HMODULE hModule, const char *filterPath, 
+	const char *filterDll, const GUID CLSID_Render, const wchar_t *filterName)
+{
+	DllGetClassObjectFunc pDllGetClassObject;
+	IBaseFilter *pBFRender;
+	HRESULT hr;
+	// try load from dll
+	if (!hModule) {
+		char szFilePath[MAX_PATH + 1];
+		char szDllPath[MAX_PATH + 1];
+		char szOldPath[MAX_PATH + 1];
+		GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+		(strrchr(szFilePath, _T('\\')))[1] = 0;
+		sprintf(szDllPath, "%scodecs\\%s", szFilePath, filterPath);
+		if(tSetDllDirectoryA) {
+			tSetDllDirectoryA(szDllPath);
+		} else {
+			GetCurrentDirectoryA(MAX_PATH, szOldPath);
+			SetCurrentDirectoryA(szDllPath);
+		}
+		hModule = LoadLibraryA(filterDll);
+		if (!hModule) return E_FAIL;
+	}
+	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hModule,"DllGetClassObject");
+	if (!pDllGetClassObject) return E_FAIL;
+	IClassFactory *pCF;
+	IUnknown* object;
+	if (hr = FAILED(pDllGetClassObject(CLSID_Render, IID_IClassFactory, (void**)&pCF)))
+		return hr;
+	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IUnknown, (void **)&object)))
+		return hr;
+	pCF->Release();
+	if (hr = FAILED(object->QueryInterface(IID_IBaseFilter, (void **)&pBFRender)))
+		return hr;
+	object->Release();
+
+	if(pGraph->AddFilter(pBFRender, filterName) != S_OK) {
+		pBFRender->Release();
+		return E_FAIL;
+	}
+	pBFRender->Release();
+
+	return S_OK;
+
+}
+
+static HRESULT LoadCSFFile(IGraphBuilder *pGraph, const WCHAR* wszName)
+{
+	DllGetClassObjectFunc pDllGetClassObject;
+	IFileSourceFilter *pCSFSource = NULL;
+	HRESULT hr;
+	// try load from dll
+	if (!hCsfSourceDLL) {
+		char szFilePath[MAX_PATH + 1];
+		char szDllPath[MAX_PATH + 1];
+		char szOldPath[MAX_PATH + 1];
+		GetModuleFileNameA(NULL, szFilePath, MAX_PATH);
+		(strrchr(szFilePath, _T('\\')))[1] = 0;
+		sprintf(szDllPath, "%scodecs\\csfcodec\\", szFilePath);
+		if(tSetDllDirectoryA) {
+			tSetDllDirectoryA(szDllPath);
+		} else {
+			GetCurrentDirectoryA(MAX_PATH, szOldPath);
+			SetCurrentDirectoryA(szDllPath);
+		}
+		hCsfSourceDLL = LoadLibraryA("mpc_mxsource.dll");
+		if (!hCsfSourceDLL) return E_FAIL;
+	}
+	pDllGetClassObject = (DllGetClassObjectFunc)GetProcAddress(hCsfSourceDLL,"DllGetClassObject");
+	if (!pDllGetClassObject) return E_FAIL;
+	IClassFactory *pCF;
+	if (hr = FAILED(pDllGetClassObject(CLSID_CSF_Source, IID_IClassFactory, (void**)&pCF)))
+		return hr;
+	if (hr = FAILED(pCF->CreateInstance(NULL, IID_IFileSourceFilter, (void **)&pCSFSource)))
+		return hr;
+	pCF->Release();
+
+	AM_MEDIA_TYPE pmt;
+	IBaseFilter *pBFCsf;
+	if (FAILED(hr = pCSFSource->Load(wszName, &pmt)))
+		return hr;
+	pCSFSource->QueryInterface(IID_IBaseFilter, (void**)&pBFCsf);
+	pGraph->AddFilter(pBFCsf, L"CSF Source");
+	pCSFSource->Release();
+
+	hr = LoadRender(pGraph, hCsfRenderDLL, "csfcodec", "mpc_mxrender.dll", CLSID_CSF_Render, L"CSF Render");
+	
+	pBFCsf->Release();
+
+	if(demuxerInfo) {
+		char *name = new char[256];
+		sprintf(name, "CSF Demuxer");
+		*demuxerInfo = name;
+	}
+
+	return hr;
+}
+
 static DWORD WINAPI RefreshSystemTray()
 {
 
@@ -992,6 +1093,9 @@ InitDShowGraphFromFileW(const WCHAR * szFileName,	// File to play
 			} else if(!_wcsicmp(wext,L".flv")) {
 				if(LoadFlvFile(pdgi->pGB,szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
+			} else if(!_wcsicmp(wext,L".csf")) {
+				if(LoadCSFFile(pdgi->pGB,szFileName) == S_OK)
+					goto CSF_RENDER_SUCCEEDED;
 			} else {
 				if(LoadHaaliFile(pdgi->pGB, szFileName) == S_OK)
 					goto RENDER_SUCCEEDED;
@@ -1382,6 +1486,21 @@ NONASRC:
 		Sleep(30);
 	}
 	return pdgi;
+
+CSF_RENDER_SUCCEEDED:
+	if (S_OK != pdgi->pGB->QueryInterface(IID_IMediaControl,(void **)&pdgi->pMC)
+		|| S_OK != pdgi->pGB->QueryInterface(IID_IMediaSeeking,(void **)&pdgi->pMS)) {
+			SAFE_RELEASE(pdgi->pGB);
+			CoTaskMemFree(pdgi);
+			RETERR(ERR_GRAPH);
+	}
+
+#ifdef REGISTER_FILTERGRAPH
+	AddGraphToRot(pdgi->pGB, &pdgi->dwGraphRegister);
+#endif
+
+	return pdgi;
+
 }
 
 double __stdcall
