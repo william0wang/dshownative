@@ -4,34 +4,34 @@
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
 VS_VERSION_INFO VERSIONINFO
-	FILEVERSION DSN_DLL_VERSION
-	PRODUCTVERSION DSN_DLL_VERSION
-	FILEFLAGSMASK 0x17L
+ FILEVERSION DSN_DLL_VERSION
+ PRODUCTVERSION DSN_DLL_VERSION
+ FILEFLAGSMASK 0x17L
 #ifdef _DEBUG
-	FILEFLAGS 0x1L
+ FILEFLAGS 0x1L
 #else
-	FILEFLAGS 0x0L
+ FILEFLAGS 0x0L
 #endif
-	FILEOS 0x4L
-	FILETYPE 0x2L
-	FILESUBTYPE 0x0L
+ FILEOS 0x4L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
 BEGIN
-	BLOCK "StringFileInfo"
-	BEGIN
-		BLOCK "00000409"
-		BEGIN
-			VALUE "FileDescription", "Direct Show Native Wrapper"
-			VALUE "FileVersion", DSN_STRINGIFY(DSN_DLL_VERSION)
-			VALUE "InternalName", "dshownative.dll"
-			VALUE "LegalCopyright", "Copyright (C) 2010 William Wang, roozhou, Gianluigi Tiesi"
-			VALUE "OriginalFilename", "dshownative.dll"
-			VALUE "ProductName", "DirectShow Native Wrapper"
-			VALUE "ProductVersion", DSN_STRINGIFY(DSN_DLL_VERSION)
-			VALUE "APIVersion", DSN_STRINGIFY(DSN_API_VERSION)
-		END
-	END
-	BLOCK "VarFileInfo"
-	BEGIN
-		VALUE "Translation", 0x0, 1033
-	END
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "00000409"
+        BEGIN
+            VALUE "FileDescription", "Direct Show Native Wrapper"
+            VALUE "FileVersion", DSN_STRINGIFY(DSN_DLL_VERSION)
+            VALUE "InternalName", "dshownative.dll"
+            VALUE "LegalCopyright", "Copyright (C) 2010-2012 William Wang, Copyright (C) 2010 roozhou, Gianluigi Tiesi"
+            VALUE "OriginalFilename", "dshownative.dll"
+            VALUE "ProductName", "DirectShow Native Wrapper"
+            VALUE "ProductVersion", DSN_STRINGIFY(DSN_DLL_VERSION)
+            VALUE "APIVersion", DSN_STRINGIFY(DSN_API_VERSION)
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0, 1033
+    END
 END

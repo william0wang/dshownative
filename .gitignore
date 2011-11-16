@@ -4,6 +4,7 @@
 *.lib
 *.ipch
 *.sdf
+*.aps
 *.opensdf
 *.*.user
 bin
