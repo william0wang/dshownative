@@ -485,7 +485,7 @@ public:
         return TRUE;
     }
 
-    dsnerror_t Decode(const BYTE *src, int size, double pts, BYTE *pImage, int keyframe)
+    dsnerror_t Decode(const BYTE *src, int size, double pts, double *newpts, BYTE *pImage, int keyframe)
     {
         IMediaSample* sample = NULL;
         REFERENCE_TIME start = PTS2RT(pts); /* sometimes I get x99999 instead of y00000 */
@@ -493,11 +493,11 @@ public:
         BYTE *ptr;
 
         DSN_CHECK(m_pAll->GetBuffer(&sample, 0, 0, 0), DSN_FAIL_DECODESAMPLE);
+		DSN_CHECK(sample->SetTime(&start, &stoptime), DSN_FAIL_DECODESAMPLE);
 
         DSN_CHECK(sample->SetActualDataLength(size), DSN_FAIL_DECODESAMPLE);
         DSN_CHECK(sample->GetPointer(&ptr), DSN_FAIL_DECODESAMPLE);
         memcpy(ptr, src, size);
-        DSN_CHECK(sample->SetTime(&start, &stoptime), DSN_FAIL_DECODESAMPLE);
         DSN_CHECK(sample->SetSyncPoint(keyframe), DSN_FAIL_DECODESAMPLE);
         DSN_CHECK(sample->SetPreroll(pImage ? 0 : 1), DSN_FAIL_DECODESAMPLE);
         DSN_CHECK(sample->SetDiscontinuity(m_discontinuity), DSN_FAIL_DECODESAMPLE);
@@ -507,6 +507,7 @@ public:
         DSN_CHECK(m_pImp->Receive(sample), DSN_FAIL_RECEIVE);
         sample->Release();
 
+        *newpts = RT2PTS(m_pOurOutput->GetPTS());
         return DSN_OK;
     }
 
@@ -657,7 +658,7 @@ private:
 extern "C" DSVideoCodec * WINAPI DSOpenVideoCodec(const char *dll, const GUID guid, BITMAPINFOHEADER* bih,
                                                   unsigned int outfmt, double fps, const char *filename, int mpegts, dsnerror_t *err)
 {
-    DSVideoCodec *vcodec = new DSVideoCodec(dll, guid, bih, outfmt, (REFERENCE_TIME) (1E9 / fps), filename, mpegts);
+    DSVideoCodec *vcodec = new DSVideoCodec(dll, guid, bih, outfmt, (REFERENCE_TIME) (1E7 / fps), filename, mpegts);
     dsnerror_t res = DSN_OK;
 
     if (!vcodec->LoadLibrary())
@@ -680,9 +681,9 @@ extern "C" void WINAPI DSCloseVideoCodec(DSVideoCodec *vcodec)
     delete vcodec;
 }
 
-extern "C" dsnerror_t WINAPI DSVideoDecode(DSVideoCodec *vcodec, const BYTE *src, int size, double pts, BYTE *pImage, int keyframe)
+extern "C" dsnerror_t WINAPI DSVideoDecode(DSVideoCodec *vcodec, const BYTE *src, int size, double pts, double *newpts, BYTE *pImage, int keyframe)
 {
-    return vcodec->Decode(src, size, pts, pImage, keyframe);
+    return vcodec->Decode(src, size, pts, newpts, pImage, keyframe);
 }
 
 extern "C" dsnerror_t WINAPI DSVideoResync(DSVideoCodec *vcodec, double pts)

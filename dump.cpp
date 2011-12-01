@@ -1517,7 +1517,7 @@ GetGraphDuration(dump_graph_instance_t *pdgi)
 	if (t & AM_SEEKING_CanGetDuration) {
 		REFERENCE_TIME rt;
 		pdgi->pMS->GetDuration(&rt);
-		return (double)(rt / 1E9);
+		return (double)(rt / 1E7);
 	}
 	return -1;
 }
