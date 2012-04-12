@@ -667,9 +667,9 @@ static HRESULT LoadSpliter(IGraphBuilder *pGraph, const WCHAR* wszName, const WC
 				} else if(IsAVC(mt->subtype)) {
 					if(LoadCoreAVCDecoder(pGraph, pOut) == S_OK)
 						have_video = true;
-					else if(LoadDivXH264Decoder(pGraph, pOut) == S_OK)
-						have_video = true;
 					else if(LoadMPCVideoDec(pGraph, pOut) == S_OK)
+						have_video = true;
+					else if(LoadDivXH264Decoder(pGraph, pOut) == S_OK)
 						have_video = true;
 				}
 				if(!have_video && pGraph->Render(pOut) == S_OK)
