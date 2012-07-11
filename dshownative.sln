@@ -16,8 +16,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dumptest", "dumptest\dumpte
 		{C9A87544-1E80-46EC-9F6A-8F1B3A8EA139} = {C9A87544-1E80-46EC-9F6A-8F1B3A8EA139}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test", "test\test.vcproj", "{BC85D808-FBEC-45E5-A567-D838F2E19591}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -38,10 +36,6 @@ Global
 		{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}.Debug|Win32.ActiveCfg = Debug|Win32
 		{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}.Debug|Win32.Build.0 = Debug|Win32
 		{94FAFEC3-7A31-4AAF-8BD9-19008666D6A4}.Release|Win32.ActiveCfg = Release|Win32
-		{BC85D808-FBEC-45E5-A567-D838F2E19591}.Debug|Win32.ActiveCfg = Debug|Win32
-		{BC85D808-FBEC-45E5-A567-D838F2E19591}.Debug|Win32.Build.0 = Debug|Win32
-		{BC85D808-FBEC-45E5-A567-D838F2E19591}.Release|Win32.ActiveCfg = Release|Win32
-		{BC85D808-FBEC-45E5-A567-D838F2E19591}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
