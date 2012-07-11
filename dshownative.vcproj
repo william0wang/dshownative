@@ -184,6 +184,10 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
+				RelativePath=".\D3DTest.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\dsnative.cpp"
 				>
 			</File>
@@ -225,6 +229,14 @@
 			Filter="h;hpp;hxx;hm;inl;inc;xsd"
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
+			<File
+				RelativePath=".\D3DTest.h"
+				>
+			</File>
+			<File
+				RelativePath=".\d3dx9api.h"
+				>
+			</File>
 			<File
 				RelativePath=".\dsnative.h"
 				>
